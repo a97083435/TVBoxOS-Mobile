@@ -1,1 +1,1 @@
-lib-*.aar
+# Bundled playback libraries are versioned so clean checkouts can build.
