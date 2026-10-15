@@ -80,7 +80,7 @@ public final class SourceManager {
                 url = response.request().url().toString(); content = text(response.body().byteStream());
             }
         }
-        content = ApiConfig.FindResult(content, key);
+        content = key == null ? com.kukuqi.tvbox.engine.api.Decoder.decode(url,content) : ApiConfig.FindResult(content,key);
         if (inputUrl.startsWith("clan://")) content = ApiConfig.get().clanContentFix(url, content);
         return new ConfigCompat.Resource(url, content);
     }

@@ -12,6 +12,14 @@ import urllib.error
 import urllib.request
 
 
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with path.open('rb') as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def app_version(root=Path('.')):
     text = (root / 'app/build.gradle').read_text(encoding='utf-8')
     def field(name, pattern):
@@ -89,8 +97,7 @@ def metadata(apk, output, repository, aapt, apksigner):
     signer = re.search(r'Signer #1 certificate SHA-256 digest: ([a-fA-F0-9]{64})', signatures)
     if not signer:
         raise ValueError('APK has no verified signing certificate')
-    with apk.open('rb') as source:
-        checksum = hashlib.file_digest(source, 'sha256').hexdigest()
+    checksum = sha256_file(apk)
     manifest = {'version': version, 'version_code': code, 'package_name': package,
                 'apk_url': f'https://github.com/{repository}/releases/download/v{version}/{apk.name}',
                 'sha256': checksum, 'size': apk.stat().st_size, 'signer_sha256': signer.group(1).lower()}

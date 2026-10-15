@@ -295,7 +295,7 @@ class FastSearchActivity : BaseVbActivity<ActivityFastSearchBinding>(), TextWatc
 
                 @Throws(Throwable::class)
                 override fun convertResponse(response: Response): String {
-                    return response.body()!!.string()
+                    return response.body!!.string()
                 }
             })
     }

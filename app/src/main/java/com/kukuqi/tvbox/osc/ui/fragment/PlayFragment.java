@@ -76,7 +76,7 @@ import com.kukuqi.tvbox.osc.util.LOG;
 import com.kukuqi.tvbox.osc.util.MD5;
 import com.kukuqi.tvbox.osc.util.PlayerHelper;
 import com.kukuqi.tvbox.osc.util.VideoParseRuler;
-import com.kukuqi.tvbox.osc.util.thunder.Jianpian;
+
 import com.kukuqi.tvbox.osc.util.thunder.Thunder;
 import com.kukuqi.tvbox.osc.viewmodel.SourceViewModel;
 import com.google.android.exoplayer2.Player;
@@ -484,6 +484,10 @@ public class PlayFragment extends BaseLazyFragment {
     }
 
     void selectMyAudioTrack() {
+        if (mVideoView.getMediaPlayer() instanceof com.kukuqi.tvbox.osc.player.CorePlayer) {
+            com.kukuqi.tvbox.osc.player.PlaybackTracks.select(requireActivity(), mVideoView, mController.mSubtitleView, true);
+            return;
+        }
         AbstractPlayer mediaPlayer = mVideoView.getMediaPlayer();
 
         TrackInfo trackInfo = null;
@@ -552,6 +556,10 @@ public class PlayFragment extends BaseLazyFragment {
     }
 
     void selectMyInternalSubtitle() {
+        if (mVideoView.getMediaPlayer() instanceof com.kukuqi.tvbox.osc.player.CorePlayer) {
+            com.kukuqi.tvbox.osc.player.PlaybackTracks.select(requireActivity(), mVideoView, mController.mSubtitleView, false);
+            return;
+        }
         AbstractPlayer mediaPlayer = mVideoView.getMediaPlayer();
         TrackInfo trackInfo = null;
         if (mediaPlayer instanceof EXOmPlayer) {
@@ -893,7 +901,7 @@ public class PlayFragment extends BaseLazyFragment {
                         e.printStackTrace();
                     }
                     hideTip();
-                    PlayerHelper.updateCfg(mVideoView, mVodPlayerCfg);
+                    PlayerHelper.updateCfg(mVideoView, mVodPlayerCfg, corePlayResult);
                     mVideoView.setProgressKey(progressKey);
                     if (headers != null) {
                         mVideoView.setUrl(finalUrl, headers);
@@ -908,6 +916,14 @@ public class PlayFragment extends BaseLazyFragment {
     }
 
     private void initSubtitleView() {
+        if (mVideoView.getMediaPlayer() instanceof com.kukuqi.tvbox.osc.player.CorePlayer) {
+            com.kukuqi.tvbox.osc.player.PlaybackTracks.bind(mVideoView, mController.mSubtitleView);
+            mController.mSubtitleView.setPlaySubtitleCacheKey(subtitleCacheKey);
+            String cached = (String) CacheManager.getCache(MD5.string2MD5(subtitleCacheKey));
+            if (cached != null && !cached.isEmpty()) mController.mSubtitleView.setSubtitlePath(cached);
+            else if (playSubtitle != null && !playSubtitle.isEmpty()) mController.mSubtitleView.setSubtitlePath(playSubtitle);
+            return;
+        }
         TrackInfo trackInfo = null;
         if (mVideoView.getMediaPlayer() instanceof IjkMediaPlayer) {
             trackInfo = ((IjkMediaPlayer) (mVideoView.getMediaPlayer())).getTrackInfo();
@@ -1000,6 +1016,8 @@ public class PlayFragment extends BaseLazyFragment {
         public void onChanged(JSONObject info) {
             if (info != null) {
                 try {
+                    corePlayResult = com.kukuqi.tvbox.engine.bean.Result.objectFrom(info.toString());
+                    corePlayResult.setKey(sourceKey);
                     progressKey = info.optString("proKey", null);
                     boolean parse = info.optString("parse", "1").equals("1");
                     boolean jx = info.optString("jx", "0").equals("1");
@@ -1157,8 +1175,8 @@ public class PlayFragment extends BaseLazyFragment {
         }
         stopLoadWebView(true);
         stopParse();
-        Thunder.stop(true);//停止磁力下载
-        Jianpian.finish();//停止p2p下载
+        com.kukuqi.tvbox.engine.player.extractor.Source.get().stop();
+
     }
 
     private VodInfo mVodInfo;
@@ -1245,41 +1263,11 @@ public class PlayFragment extends BaseLazyFragment {
             CacheManager.delete(MD5.string2MD5(progressKey), 0);
             CacheManager.delete(MD5.string2MD5(subtitleCacheKey), 0);
         }
-        if (Jianpian.isJpUrl(vs.url)) {//荐片地址特殊判断
-            String jp_url = vs.url;
-            mController.showParse(false);
-            if (vs.url.startsWith("tvbox-xg:")) {
-                playUrl(Jianpian.JPUrlDec(jp_url.substring(9)), null);
-            } else {
-                playUrl(Jianpian.JPUrlDec(jp_url), null);
-            }
-            return;
-        }
-        if (Thunder.play(vs.url, new Thunder.ThunderCallback() {
-            @Override
-            public void status(int code, String info) {
-                if (code < 0) {
-                    setTip(info, false, true);
-                } else {
-                    setTip(info, true, false);
-                }
-            }
-
-            @Override
-            public void list(Map<Integer, String> urlMap) {
-            }
-
-            @Override
-            public void play(String url) {
-                playUrl(url, null);
-            }
-        })) {
-            mController.showParse(false);
-            return;
-        }
         sourceViewModel.getPlay(sourceKey, mVodInfo.playFlag, progressKey, vs.url, subtitleCacheKey);
     }
 
+    private com.kukuqi.tvbox.engine.bean.Result corePlayResult;
+    private com.kukuqi.tvbox.engine.player.parse.ParseJob coreParseJob;
     private String playSubtitle;
     private String subtitleCacheKey;
     private String progressKey;
@@ -1300,7 +1288,8 @@ public class PlayFragment extends BaseLazyFragment {
         mController.showParse(useParse);
         if (useParse) {
             parseBean = ApiConfig.get().getDefaultParse();
-        } else {
+        }
+        {
             if (playUrl.startsWith("json:")) {
                 parseBean = new ParseBean();
                 parseBean.setType(1);
@@ -1333,6 +1322,7 @@ public class PlayFragment extends BaseLazyFragment {
 
     void stopParse() {
         parseGeneration++;
+        if (coreParseJob != null) { coreParseJob.stop(); coreParseJob = null; }
         if (automaticParser != null) { automaticParser.stop(); automaticParser = null; }
         mHandler.removeMessages(100);
         stopLoadWebView(false);
@@ -1353,203 +1343,37 @@ public class PlayFragment extends BaseLazyFragment {
 
     private com.kukuqi.tvbox.osc.player.AutomaticParser automaticParser;
     private void autoParse() {
-        setTip("正在自动解析播放地址", true, false);
-        final int generation = parseGeneration;
-        automaticParser = new com.kukuqi.tvbox.osc.player.AutomaticParser(requireActivity(), this::checkVideoFormat,
-                new com.kukuqi.tvbox.osc.player.AutomaticParser.Result() {
-                    public void success(String url, Map<String, String> headers) {
-                        if (generation == parseGeneration && isAdded()) playUrl(url, new HashMap<>(headers));
-                    }
-                    public void failure() {
-                        if (generation == parseGeneration && isAdded()) setTip("自动解析失败，请切换线路或重试", false, true);
-                    }
-                });
-        automaticParser.start(ApiConfig.get().getParseBeanList(1, parseFlag),
-                ApiConfig.get().getParseBeanList(0, parseFlag), webUrl,
-                sourceBean == null ? "" : sourceBean.getClickSelector(), playerRequestHeaders);
+        ParseBean automatic = new ParseBean();
+        automatic.setType(4);
+        doParse(automatic);
     }
 
     private void doParse(ParseBean pb) {
         stopParse();
-        initParseLoadFound();
         if (pb == null) { setTip("当前配置没有解析线路", false, true); return; }
-        if (pb.getType() < 0 || pb.getType() > 4) { setTip("不支持此解析类型：" + pb.getType(), false, true); return; }
-        if (pb.getType() == 4) { autoParse(); return; }
-        webUserAgent = null;
-        webHeaderMap = new HashMap<>(parseHeaders(pb));
-        if (webHeaderMap.containsKey("User-Agent")) webUserAgent = webHeaderMap.remove("User-Agent");
-        if (pb.getType() == 0) {
-            setTip("正在嗅探播放地址", true, false);
-            mHandler.removeMessages(100);
-            mHandler.sendEmptyMessageDelayed(100, 20 * 1000);
-            loadWebView(pb.getUrl() + webUrl);
-
-        } else if (pb.getType() == 1) { // json 解析
-            setTip("正在解析播放地址", true, false);
-            HttpHeaders reqHeaders = new HttpHeaders();
-            parseHeaders(pb).forEach(reqHeaders::put);
-            OkGo.<String>get(pb.getUrl() + webUrl)
-                    .tag("json_jx")
-                    .headers(reqHeaders)
-                    .execute(new AbsCallback<String>() {
-                        @Override
-                        public String convertResponse(okhttp3.Response response) throws Throwable {
-                            if (response.body() != null) {
-                                return response.body().string();
-                            } else {
-                                throw new IllegalStateException("网络请求错误");
-                            }
-                        }
-
-                        @Override
-                        public void onSuccess(Response<String> response) {
-                            String json = response.body();
-                            try {
-                                com.kukuqi.tvbox.osc.util.ParseResult parsed = com.kukuqi.tvbox.osc.util.ParseResult.read(json, parseHeaders(pb));
-                                JSONObject rs = new JSONObject(); rs.put("url", parsed.url); rs.put("header", new JSONObject(parsed.headers));
-                                HashMap<String, String> headers = new HashMap<>(parseHeaders(pb));
-                                if (rs.has("header")) {
-                                    try {
-                                        JSONObject hds = rs.getJSONObject("header");
-                                        Iterator<String> keys = hds.keys();
-                                        while (keys.hasNext()) {
-                                            String key = keys.next();
-                                            if (headers == null) {
-                                                headers = new HashMap<>();
-                                            }
-                                            headers.put(com.kukuqi.tvbox.osc.util.ConfigCompat.headerKey(key), hds.getString(key).trim());
-                                        }
-                                    } catch (Throwable th) {
-
-                                    }
-                                }
-                                playUrl(rs.getString("url"), headers);
-                            } catch (Throwable e) {
-                                e.printStackTrace();
-                                errorWithRetry("解析错误", false);
-//                                setTip("解析错误", false, true);
-                            }
-                        }
-
-                        @Override
-                        public void onError(Response<String> response) {
-                            super.onError(response);
-                            errorWithRetry("解析错误", false);
-//                            setTip("解析错误", false, true);
-                        }
-                    });
-        } else if (pb.getType() == 2) { // json 扩展
-            setTip("正在解析播放地址", true, false);
-            parseThreadPool = Executors.newSingleThreadExecutor();
-            LinkedHashMap<String, String> jxs = new LinkedHashMap<>();
-            for (ParseBean p : ApiConfig.get().getParseBeanList()) {
-                if (p.getType() == 1) {
-                    jxs.put(p.getName(), p.mixUrl());
-                }
+        setTip(pb.getType() == 0 ? "正在嗅探播放地址" : "正在解析播放地址", true, false);
+        final int generation = parseGeneration;
+        com.google.gson.JsonObject selected = new com.google.gson.JsonObject();
+        selected.addProperty("name", pb.getName());
+        selected.addProperty("url", pb.getUrl());
+        selected.addProperty("type", pb.getType());
+        try { selected.add("ext", com.google.gson.JsonParser.parseString(pb.getExt())); }
+        catch (Exception ignored) { }
+        com.kukuqi.tvbox.engine.bean.Result request = corePlayResult == null
+                ? new com.kukuqi.tvbox.engine.bean.Result()
+                : com.kukuqi.tvbox.engine.bean.Result.objectFrom(corePlayResult.toString());
+        request.setKey(sourceKey);
+        request.setFlag(parseFlag);
+        request.setUrl(webUrl);
+        request.setHeader(playerRequestHeaders);
+        coreParseJob = com.kukuqi.tvbox.engine.player.parse.ParseJob.create(new com.kukuqi.tvbox.engine.impl.ParseCallback() {
+            @Override public void onParseSuccess(Map<String,String> headers, String url, String from) {
+                if (generation == parseGeneration && isAdded()) playUrl(url, new HashMap<>(headers));
             }
-            parseThreadPool.execute(new Runnable() {
-                @Override
-                public void run() {
-                    JSONObject rs = ApiConfig.get().jsonExt(pb.getUrl(), jxs, webUrl);
-                    if (rs == null || !rs.has("url") || rs.optString("url").isEmpty()) {
-//                        errorWithRetry("解析错误", false);
-                        setTip("解析错误", false, true);
-                    } else {
-                        HashMap<String, String> headers = new HashMap<>(parseHeaders(pb));
-                        if (rs.has("header")) {
-                            try {
-                                JSONObject hds = rs.getJSONObject("header");
-                                Iterator<String> keys = hds.keys();
-                                while (keys.hasNext()) {
-                                    String key = keys.next();
-                                    if (headers == null) {
-                                        headers = new HashMap<>();
-                                    }
-                                    headers.put(com.kukuqi.tvbox.osc.util.ConfigCompat.headerKey(key), hds.getString(key).trim());
-                                }
-                            } catch (Throwable th) {
-
-                            }
-                        }
-                        if (rs.has("jxFrom")) {
-                            ToastUtils.showShort("解析来自:" + rs.optString("jxFrom"));
-                        }
-                        boolean parseWV = rs.optInt("parse", 0) == 1;
-                        if (parseWV) {
-                            String wvUrl = DefaultConfig.checkReplaceProxy(rs.optString("url", ""));
-                            loadUrl(wvUrl);
-                        } else {
-                            playUrl(rs.optString("url", ""), headers);
-                        }
-                    }
-                }
-            });
-        } else if (pb.getType() == 3) { // json 聚合
-            setTip("正在解析播放地址", true, false);
-            parseThreadPool = Executors.newSingleThreadExecutor();
-            LinkedHashMap<String, HashMap<String, String>> jxs = new LinkedHashMap<>();
-            String extendName = "";
-            for (ParseBean p : ApiConfig.get().getParseBeanList()) {
-                HashMap data = new HashMap<String, String>();
-                data.put("url", p.getUrl());
-                if (p.getUrl().equals(pb.getUrl())) {
-                    extendName = p.getName();
-                }
-                data.put("type", p.getType() + "");
-                data.put("ext", p.getExt());
-                jxs.put(p.getName(), data);
+            @Override public void onParseError() {
+                if (generation == parseGeneration && isAdded()) errorWithRetry("解析错误，请切换线路或重试", false);
             }
-            String finalExtendName = extendName;
-            parseThreadPool.execute(new Runnable() {
-                @Override
-                public void run() {
-                    JSONObject rs = ApiConfig.get().jsonExtMix(parseFlag, pb.getUrl(), finalExtendName, jxs, webUrl);
-                    if (rs == null || !rs.has("url") || rs.optString("url").isEmpty()) {
-//                        errorWithRetry("解析错误", false);
-                        setTip("解析错误", false, true);
-                    } else {
-                        if (rs.has("parse") && rs.optInt("parse", 0) == 1) {
-                            if (rs.has("ua")) {
-                                webUserAgent = rs.optString("ua").trim();
-                            }
-                            if (!isAdded()) return;
-                            requireActivity().runOnUiThread(new Runnable() {
-                                @Override
-                                public void run() {
-                                    String mixParseUrl = DefaultConfig.checkReplaceProxy(rs.optString("url", ""));
-                                    stopParse();
-                                    setTip("正在嗅探播放地址", true, false);
-                                    mHandler.removeMessages(100);
-                                    mHandler.sendEmptyMessageDelayed(100, 20 * 1000);
-                                    loadWebView(mixParseUrl);
-                                }
-                            });
-                        } else {
-                            HashMap<String, String> headers = new HashMap<>(parseHeaders(pb));
-                            if (rs.has("header")) {
-                                try {
-                                    JSONObject hds = rs.getJSONObject("header");
-                                    Iterator<String> keys = hds.keys();
-                                    while (keys.hasNext()) {
-                                        String key = keys.next();
-                                        if (headers == null) {
-                                            headers = new HashMap<>();
-                                        }
-                                        headers.put(com.kukuqi.tvbox.osc.util.ConfigCompat.headerKey(key), hds.getString(key).trim());
-                                    }
-                                } catch (Throwable th) {
-                                    th.printStackTrace();
-                                }
-                            }
-                            if (rs.has("jxFrom")) {
-                                ToastUtils.showShort("解析来自:" + rs.optString("jxFrom"));
-                            }
-                            playUrl(rs.optString("url", ""), headers);
-                        }
-                    }
-                }
-            });
-        }
+        }).start(request, com.kukuqi.tvbox.engine.bean.Parse.objectFrom(selected));
     }
 
     private String encodeUrl(String url) {
@@ -1613,6 +1437,27 @@ public class PlayFragment extends BaseLazyFragment {
 
     public String getFinalUrl(){
         return TextUtils.isEmpty(mCurrentUrl) || !RegexUtils.isURL(mCurrentUrl) ?"":mCurrentUrl;
+    }
+
+    public void showCastDialog() {
+        if (mVideoView == null || !(mVideoView.getMediaPlayer() instanceof com.kukuqi.tvbox.osc.player.CorePlayer)) {
+            ToastUtils.showShort("播放地址尚未准备好，请开始播放后重试");
+            return;
+        }
+        com.kukuqi.tvbox.osc.player.CorePlayer core = (com.kukuqi.tvbox.osc.player.CorePlayer) mVideoView.getMediaPlayer();
+        com.kukuqi.tvbox.engine.player.PlayerManager manager = core.manager();
+        if (manager == null || manager.getUrl() == null || manager.getUrl().isEmpty()) {
+            ToastUtils.showShort("播放地址尚未准备好，请稍后重试");
+            return;
+        }
+        String title = mVodInfo == null ? "TVboxOSC" : mVodInfo.name;
+        if (mVodInfo != null && mVodInfo.seriesMap.get(mVodInfo.playFlag) != null &&
+                mVodInfo.playIndex >= 0 && mVodInfo.playIndex < mVodInfo.seriesMap.get(mVodInfo.playFlag).size()) {
+            title += " " + mVodInfo.seriesMap.get(mVodInfo.playFlag).get(mVodInfo.playIndex).name;
+        }
+        com.kukuqi.tvbox.engine.bean.CastVideo video = new com.kukuqi.tvbox.engine.bean.CastVideo(
+                title, manager.getUrl(), manager.getPosition(), manager.getHeaders());
+        com.kukuqi.tvbox.osc.ui.dialog.CastDialog.show(requireActivity(), video, mVideoView::pause);
     }
 
     boolean checkVideoFormat(String url) {

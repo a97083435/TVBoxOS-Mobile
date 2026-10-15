@@ -31,8 +31,6 @@ import okhttp3.ConnectionSpec;
 import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.dnsoverhttps.DnsOverHttps;
-import okhttp3.internal.Util;
-import okhttp3.internal.Version;
 import xyz.doikki.videoplayer.exo.ExoMediaSourceHelper;
 
 public class OkGoHelper {
@@ -65,12 +63,12 @@ public class OkGoHelper {
         ExoMediaSourceHelper.getInstance(App.getInstance()).setOkClient(builder.build());
     }
 
-    public static DnsOverHttps dnsOverHttps = null;
+    public static okhttp3.Dns dnsOverHttps = okhttp3.Dns.SYSTEM;
 
     public static ArrayList<String> dnsHttpsList = new ArrayList<>();
 
     public static List<ConnectionSpec> getConnectionSpec() {
-        return Util.immutableList(RESTRICTED_TLS, MODERN_TLS, COMPATIBLE_TLS, CLEARTEXT);
+        return java.util.Arrays.asList(RESTRICTED_TLS, MODERN_TLS, COMPATIBLE_TLS, CLEARTEXT);
     }
 
     public static String getDohUrl(int type) {
@@ -88,7 +86,18 @@ public class OkGoHelper {
         return "";
     }
 
+    public static void updateDns() {
+        initDnsOverHttps();
+        com.github.catvod.net.OkHttp.dns().setDoh(() -> new com.github.catvod.bean.Doh().url(getDohUrl(Hawk.get(HawkConfig.DOH_URL,0))));
+        if (defaultClient != null) {
+            defaultClient = defaultClient.newBuilder().dns(dnsOverHttps).build();
+            noRedirectClient = defaultClient.newBuilder().followRedirects(false).followSslRedirects(false).build();
+            OkGo.getInstance().setOkHttpClient(defaultClient);
+        }
+    }
+
     static void initDnsOverHttps() {
+        dnsHttpsList.clear();
         dnsHttpsList.add("关闭");
         dnsHttpsList.add("腾讯");
         dnsHttpsList.add("阿里");
@@ -112,7 +121,7 @@ public class OkGoHelper {
         builder.cache(new Cache(new File(App.getInstance().getCacheDir().getAbsolutePath(), "dohcache"), 10 * 1024 * 1024));
         OkHttpClient dohClient = builder.build();
         String dohUrl = getDohUrl(Hawk.get(HawkConfig.DOH_URL, 0));
-        dnsOverHttps = new DnsOverHttps.Builder().client(dohClient).url(dohUrl.isEmpty() ? null : HttpUrl.get(dohUrl)).build();
+        dnsOverHttps = dohUrl.isEmpty() ? okhttp3.Dns.SYSTEM : new DnsOverHttps.Builder().client(dohClient).url(HttpUrl.get(dohUrl)).build();
     }
     static OkHttpClient defaultClient = null;
     static OkHttpClient noRedirectClient = null;
@@ -152,7 +161,7 @@ public class OkGoHelper {
             th.printStackTrace();
         }
 
-        HttpHeaders.setUserAgent(Version.userAgent());
+        HttpHeaders.setUserAgent("TVboxOSC/3.0.3");
 
         OkHttpClient okHttpClient = builder.build();
         OkGo.getInstance().setOkHttpClient(okHttpClient);

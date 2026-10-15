@@ -25,13 +25,13 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
-      - name: Install Android API 34
-        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" "build-tools;34.0.0"'
+          java-version: '21'
+      - name: Install Android API 37
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0"'
       - uses: gradle/actions/setup-gradle@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.10'
       - name: Test release automation
         run: python -m unittest discover -s scripts -p 'test_*.py' -v
       - name: Build Debug and run unit tests
@@ -105,13 +105,13 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
-      - name: Install Android API 34
-        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" "build-tools;34.0.0"'
+          java-version: '21'
+      - name: Install Android API 37
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0"'
       - uses: gradle/actions/setup-gradle@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.10'
       - name: Restore fixed release signing key
         env:
           TVBOX_KEYSTORE_BASE64: ${{ secrets.TVBOX_KEYSTORE_BASE64 }}
@@ -124,6 +124,7 @@ jobs:
           chmod 600 TVBoxOSC.jks
       - name: Build signed Release APK
         env:
+          TVBOX_BUILD_PYTHON: python3.10
           TVBOX_KEY_ALIAS: ${{ secrets.TVBOX_KEY_ALIAS }}
           TVBOX_KEY_PASSWORD: ${{ secrets.TVBOX_KEY_PASSWORD }}
           TVBOX_STORE_PASSWORD: ${{ secrets.TVBOX_STORE_PASSWORD }}
@@ -137,8 +138,8 @@ jobs:
           python scripts/release.py metadata \
             --apk "app/build/outputs/apk/release/TVboxOSC-v${VERSION}.apk" \
             --output build/release/update.json \
-            --aapt "$ANDROID_HOME/build-tools/34.0.0/aapt" \
-            --apksigner "$ANDROID_HOME/build-tools/34.0.0/apksigner"
+            --aapt "$ANDROID_HOME/build-tools/37.0.0/aapt" \
+            --apksigner "$ANDROID_HOME/build-tools/37.0.0/apksigner"
       - name: Create tag and publish verified assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -167,7 +168,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.10'
       - name: Sync published manifest and README to main
         env:
           GH_TOKEN: ${{ github.token }}

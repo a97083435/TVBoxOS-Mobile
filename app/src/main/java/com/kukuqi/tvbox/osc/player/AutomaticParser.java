@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 
-/** FongMi type 4 semantics: race JSON parsers and web parsers, then cancel all losers. */
+/** Type 4 semantics: race JSON and web parsers, then cancel the remaining jobs. */
 public final class AutomaticParser {
     public interface Result { void success(String url, Map<String,String> headers); void failure(); }
     private final Activity activity;

@@ -158,7 +158,7 @@ public class RemoteServer extends NanoHTTPD {
                     String name = session.getParms().get("name");
                     byte[] rs = null;
                     try {
-                        rs = OkGoHelper.dnsOverHttps.lookupHttpsForwardSync(name);
+                        rs = com.kukuqi.tvbox.osc.core.CoreDnsBridge.message(name);
                     } catch (Throwable th) {
                         rs = new byte[0];
                     }

@@ -9,7 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
-/** FongMi config conventions, independent of Android and the selected player. */
+/** Normalizes supported source conventions independently of Android and the selected player. */
 public final class ConfigCompat {
     public interface Fetcher { Resource fetch(String url) throws Exception; }
     public static final class Resource {
@@ -33,7 +33,7 @@ public final class ConfigCompat {
             return resolve(fetcher.fetch(SourceDescriptor.resolve(resource.url, url)), fetcher, visited, depth + 1);
         }
         normalize(object, resource.url);
-        // FongMi allows external arrays for rules/headers/proxy/doh, but not sites/parses.
+        // Optional rule, header, proxy and DNS arrays may be loaded from external files.
         for (String key : new String[]{"rules", "headers", "proxy", "doh"}) {
             JsonElement value = object.get(key);
             if (value == null || value.isJsonNull()) continue;
@@ -49,7 +49,7 @@ public final class ConfigCompat {
                         if (parsed.isJsonArray()) for (JsonElement entry : parsed.getAsJsonArray()) {
                             if (entry.isJsonObject()) { normalize(entry, fetched.url); result.add(entry); }
                         }
-                    } catch (Exception ignored) { /* FongMi treats an unavailable optional list as empty. */ }
+                    } catch (Exception ignored) { /* An unavailable optional list is treated as empty. */ }
                 }
             }
             object.add(key, result);

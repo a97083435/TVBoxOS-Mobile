@@ -6,7 +6,7 @@ import com.google.gson.JsonObject;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** Adapts FongMi groups/channel and legacy group/channels without discarding headers. */
+/** Adapts current and legacy live group formats without discarding headers. */
 public final class LiveConfigCompat {
     private LiveConfigCompat() {}
     public static Map<String, String> headers(JsonObject object, Map<String, String> parent) {

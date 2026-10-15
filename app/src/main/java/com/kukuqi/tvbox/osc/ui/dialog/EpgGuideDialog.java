@@ -53,6 +53,10 @@ public class EpgGuideDialog extends CenterPopupView {
             }
         };
         list.setAdapter(adapter);
+        adapter.setOnItemClickListener((items, view, position) -> {
+            EpgSchedule.Programme programme = adapter.getItem(position);
+            if (programme != null) { activity.playEpgProgramme(programme); dismiss(); }
+        });
         findViewById(R.id.epg_close).setOnClickListener(v -> dismiss());
         findViewById(R.id.epg_previous).setOnClickListener(v -> shift(-1));
         findViewById(R.id.epg_next).setOnClickListener(v -> shift(1));

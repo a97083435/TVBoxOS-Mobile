@@ -38,7 +38,7 @@ public class ConfigCompatTest {
         assertEquals("token=ok", ConfigCompat.headers(JsonParser.parseString("{\"cookie\":\"token=ok\",\"Referer\":null}")).get("Cookie"));
         assertTrue(ConfigCompat.headers(JsonParser.parseString("\"invalid\"")).isEmpty());
     }
-    @Test public void liveGroupsInheritHeadersAndMapFongmiIdentifiers() {
+    @Test public void liveGroupsInheritHeadersAndMapCoreIdentifiers() {
         SourceDescriptor source = new SourceDescriptor("https://test/config.json", "{\"lives\":[{\"name\":\"来源\",\"ua\":\"Parent\",\"header\":{\"cookie\":\"a=b\"},\"epg\":\"./guide.xml\",\"groups\":[{\"name\":\"新闻\",\"pass\":\"123\",\"channel\":[{\"name\":\"央视\",\"tvgId\":\"CCTV1\",\"tvgName\":\"央视一套\",\"ua\":\"Child\",\"urls\":[\"./live.m3u8$高清\"]}]}]}]}");
         assertTrue(source.hasLive());
         JsonObject group = LiveConfigCompat.groups(source.lives(), source.url).get(0).getAsJsonObject();

@@ -209,7 +209,14 @@ public class DetailActivity extends BaseVbActivity<ActivityDetailBinding> {
                 sortSeries();
             }
         });
-        mBinding.tvCast.setVisibility(View.GONE);
+        mBinding.tvCast.setVisibility(View.VISIBLE);
+        mBinding.tvCast.setOnClickListener(v -> {
+            if (playFragment == null) {
+                ToastUtils.showShort("请先开启预览并开始播放，再选择投屏设备");
+                return;
+            }
+            playFragment.showCastDialog();
+        });
         mBinding.tvCollect.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {

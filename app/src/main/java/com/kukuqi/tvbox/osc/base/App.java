@@ -22,8 +22,7 @@ import com.kukuqi.tvbox.osc.util.PlayerHelper;
 import com.kukuqi.tvbox.osc.util.Utils;
 import com.kingja.loadsir.core.LoadSir;
 import com.orhanobut.hawk.Hawk;
-import com.p2p.P2PClass;
-import com.whl.quickjs.android.QuickJSLoader;
+
 
 import java.util.ArrayList;
 import java.util.List;
@@ -32,10 +31,10 @@ import cat.ereza.customactivityoncrash.config.CaocConfig;
 import me.jessyan.autosize.AutoSizeConfig;
 import me.jessyan.autosize.unit.Subunits;
 
-public class App extends MultiDexApplication {
+public class App extends com.kukuqi.tvbox.engine.App {
     private static App instance;
 
-    private static P2PClass p;
+
     public static String burl;
 
     public boolean isNormalStart;
@@ -45,11 +44,15 @@ public class App extends MultiDexApplication {
         super.onCreate();
         instance = this;
         initParams();
+        com.orhanobut.logger.Logger.addLogAdapter(new com.orhanobut.logger.AndroidLogAdapter(
+                com.orhanobut.logger.PrettyFormatStrategy.newBuilder().methodCount(0).showThreadInfo(false).tag("TVboxCore").build()));
         // OKGo
         OkGoHelper.init(); //台标获取
+        OkGoHelper.updateDns();
         EpgUtil.init();
         // 初始化Web服务器
         ControlManager.init(this);
+        com.kukuqi.tvbox.engine.server.Server.get().start();
         //初始化数据库
         AppDataManager.init();
         LoadSir.beginBuilder()
@@ -64,7 +67,6 @@ public class App extends MultiDexApplication {
                 .setSupportSP(false)
                 .setSupportSubunits(Subunits.MM);
         PlayerHelper.init();
-        QuickJSLoader.init();
         FileUtils.cleanPlayerCache();
         initCrashConfig();
         Utils.initTheme();
@@ -74,7 +76,7 @@ public class App extends MultiDexApplication {
 
     private void initParams() {
         // Hawk
-        Hawk.init(this).build();
+        com.orhanobut.hawk.HawkCompat.init(this);
         Hawk.put(HawkConfig.DEBUG_OPEN, false);
 
         putDefault(HawkConfig.HOME_REC, 0);                  //推荐: 0=豆瓣热播, 1=站点推荐
@@ -161,18 +163,6 @@ public class App extends MultiDexApplication {
     }
     public VodInfo getVodInfo(){
         return this.vodInfo;
-    }
-
-    public static P2PClass getp2p() {
-        try {
-            if (p == null) {
-                p = new P2PClass(instance.getExternalCacheDir().getAbsolutePath());
-            }
-            return p;
-        } catch (Exception e) {
-            LOG.e(e.toString());
-            return null;
-        }
     }
 
     private void initCrashConfig(){

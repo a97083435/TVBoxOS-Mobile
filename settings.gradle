@@ -5,3 +5,8 @@ include ':quickjs'
 include ':TabLayout'
 include ':ViewPager1Delegate'
 include ':crash'
+include ':tvbox-engine', ':source-runtime', ':js-runtime', ':python-runtime'
+project(':tvbox-engine').projectDir = file('engine/core')
+project(':source-runtime').projectDir = file('engine/catvod')
+project(':js-runtime').projectDir = file('engine/quickjs')
+project(':python-runtime').projectDir = file('engine/chaquo')

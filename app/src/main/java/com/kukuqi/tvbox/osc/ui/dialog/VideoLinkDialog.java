@@ -28,7 +28,7 @@ import com.kukuqi.tvbox.osc.ui.activity.DetailActivity;
 import com.kukuqi.tvbox.osc.ui.activity.LocalPlayActivity;
 import java.util.Collections;
 
-/** FongMi-style link/file entry, with the existing VOD and local players. */
+/** Link and file entry backed by the existing VOD and local players. */
 public final class VideoLinkDialog extends DialogFragment {
     public static final String SOURCE = "__video_link__";
     private static final String TAG = "video-link";

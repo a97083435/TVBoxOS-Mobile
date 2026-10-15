@@ -41,6 +41,10 @@ public class LivePlayerManager {
         }
     }
 
+    public void prepareCore(VideoView videoView, com.kukuqi.tvbox.engine.bean.Result result) {
+        PlayerHelper.updateCfg(videoView, currentPlayerConfig == null ? defaultPlayerConfig : currentPlayerConfig, result);
+    }
+
     public void getLiveChannelPlayer(VideoView videoView, String channelName) {
         JSONObject playerConfig = Hawk.get(channelName, null);
         if (playerConfig == null) {

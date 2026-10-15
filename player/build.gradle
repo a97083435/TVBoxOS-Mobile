@@ -5,6 +5,8 @@ plugins {
 android {
     namespace 'com.kukuqi.tvbox.osc.player'
     compileSdkVersion 34
+    // Playback native libraries are supplied by the TVboxOSC engine modules.
+    sourceSets.main.jniLibs.srcDirs = []
 
     defaultConfig {
         minSdkVersion 16

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item
+        android:id="@+id/vod"
+        android:icon="@drawable/core_ic_nav_vod"
+        android:title="@string/core_nav_vod"
+        android:visible="false" />
+
+    <item
+        android:id="@+id/live"
+        android:icon="@drawable/core_ic_nav_live"
+        android:title="@string/core_nav_live"
+        android:visible="false" />
+
+    <item
+        android:id="@+id/setting"
+        android:icon="@drawable/core_ic_nav_setting"
+        android:title="@string/core_nav_setting"
+        android:visible="false" />
+
+</menu>

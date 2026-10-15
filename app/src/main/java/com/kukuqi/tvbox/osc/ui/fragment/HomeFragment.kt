@@ -162,9 +162,6 @@ class HomeFragment : BaseVbFragment<FragmentHomeBinding>() {
 
             override fun success() {
                 dataInitOk = true
-                if (ApiConfig.get().spider.isEmpty()) {
-                    jarInitOk = true
-                }
                 mHandler.postDelayed({ initData() }, 50)
             }
 
@@ -183,7 +180,7 @@ class HomeFragment : BaseVbFragment<FragmentHomeBinding>() {
     }
 
     private fun loadJar(){
-        if (!ApiConfig.get().spider.isNullOrEmpty()) {
+        run {
             ApiConfig.get().loadJar(
                 onlyConfigChanged,
                 ApiConfig.get().spider,

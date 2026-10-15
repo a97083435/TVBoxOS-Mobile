@@ -1,0 +1,29 @@
+<resources>
+
+    <color name="core_transparent">#00000000</color>
+    <color name="core_black">#000000</color>
+    <color name="core_black_05">#0D000000</color>
+    <color name="core_black_10">#1A000000</color>
+    <color name="core_black_15">#26000000</color>
+    <color name="core_black_20">#33000000</color>
+    <color name="core_black_30">#4D000000</color>
+    <color name="core_black_40">#66000000</color>
+    <color name="core_black_50">#80000000</color>
+    <color name="core_black_60">#99000000</color>
+    <color name="core_black_70">#B3000000</color>
+    <color name="core_black_80">#CC000000</color>
+    <color name="core_black_90">#E6000000</color>
+    <color name="core_white">#FFFFFF</color>
+    <color name="core_white_05">#0DFFFFFF</color>
+    <color name="core_white_15">#26FFFFFF</color>
+    <color name="core_white_10">#1AFFFFFF</color>
+    <color name="core_white_20">#33FFFFFF</color>
+    <color name="core_white_30">#4DFFFFFF</color>
+    <color name="core_white_40">#66FFFFFF</color>
+    <color name="core_white_50">#80FFFFFF</color>
+    <color name="core_white_60">#99FFFFFF</color>
+    <color name="core_white_70">#B3FFFFFF</color>
+    <color name="core_white_80">#CCFFFFFF</color>
+    <color name="core_white_90">#E6FFFFFF</color>
+
+</resources>

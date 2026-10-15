@@ -70,8 +70,7 @@ public final class EpgService {
                     try (BufferedInputStream input = new BufferedInputStream(new LimitedInput(decoded, handle))) {
                         input.mark(256); byte[] prefix = new byte[128]; int length = input.read(prefix); input.reset();
                         String beginning = length <= 0 ? "" : new String(prefix, 0, length, "UTF-8").replace("\uFEFF", "").trim();
-                        EpgSchedule schedule = beginning.startsWith("<") ? EpgSchedule.xml(input, id, name, tvgName, date, zone)
-                                : EpgSchedule.json(text(input), date, zone);
+                        EpgSchedule schedule = com.kukuqi.tvbox.osc.core.EpgCoreBridge.parse(text(input), channel, date, zone);
                         if (!handle.cancelled) { CACHE.put(key, new Cached(schedule)); handle.deliver(schedule, "", result); }
                     }
                 }

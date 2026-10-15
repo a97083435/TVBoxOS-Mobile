@@ -13,6 +13,7 @@ import xyz.doikki.videoplayer.player.AbstractPlayer;
 public final class PlaybackTracks {
     private PlaybackTracks() {}
     private static TrackInfo tracks(AbstractPlayer player) {
+        if (player instanceof CorePlayer) return ((CorePlayer) player).getTrackInfo();
         if (player instanceof IjkMediaPlayer) return ((IjkMediaPlayer) player).getTrackInfo();
         if (player instanceof EXOmPlayer) return ((EXOmPlayer) player).getTrackInfo();
         return null;
@@ -32,7 +33,8 @@ public final class PlaybackTracks {
                     boolean playing = view.isPlaying(); long position = player.getCurrentPosition();
                     player.pause();
                     if (!audio) { subtitles.destroy(); subtitles.clearSubtitleCache(); subtitles.isInternal = true; subtitles.setVisibility(View.VISIBLE); }
-                    if (player instanceof IjkMediaPlayer) ((IjkMediaPlayer) player).setTrack(item.trackId);
+                    if (player instanceof CorePlayer) ((CorePlayer) player).selectTrack(item);
+                    else if (player instanceof IjkMediaPlayer) ((IjkMediaPlayer) player).setTrack(item.trackId);
                     else if (player instanceof EXOmPlayer) ((EXOmPlayer) player).selectExoTrack(item);
                     view.postDelayed(() -> {
                         if (view.getMediaPlayer() != player || activity.isDestroyed()) return;
@@ -45,6 +47,13 @@ public final class PlaybackTracks {
         AbstractPlayer player = view.getMediaPlayer(); TrackInfo info = tracks(player);
         subtitles.hasInternal = info != null && !info.getSubtitle().isEmpty();
         subtitles.bindToMediaPlayer(player);
+        if (player instanceof CorePlayer) {
+            subtitles.isInternal = subtitles.hasInternal;
+            ((CorePlayer) player).setRenderedSubtitleEnabled(() -> subtitles.isInternal && subtitles.getVisibility() == View.VISIBLE);
+            ((CorePlayer) player).setSubtitleStyle(subtitles.getTextSize(), subtitles.getCurrentTextColor());
+            // Core cues use Media3's renderer, including positioned and bitmap subtitles.
+            subtitles.onSubtitleChanged(null);
+        }
         if (player instanceof IjkMediaPlayer) ((IjkMediaPlayer) player).setOnTimedTextListener((mp, text) -> {
             if (!subtitles.isInternal) return;
             Subtitle subtitle = new Subtitle(); subtitle.content = text == null ? "" : text.getText();

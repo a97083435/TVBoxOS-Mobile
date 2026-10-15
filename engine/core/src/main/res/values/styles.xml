@@ -1,0 +1,73 @@
+<resources>
+
+    <style name="core_Vod">
+        <item name="cornerFamily">rounded</item>
+    </style>
+
+    <style name="core_Vod.Grid">
+        <item name="cornerSizeTopLeft">8dp</item>
+        <item name="cornerSizeTopRight">8dp</item>
+    </style>
+
+    <style name="core_Vod.Grid.Large">
+        <item name="cornerSize">8dp</item>
+    </style>
+
+    <style name="core_Vod.Circle">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">50%</item>
+    </style>
+
+    <style name="core_Vod.List">
+        <item name="cornerSizeTopLeft">8dp</item>
+        <item name="cornerSizeBottomLeft">8dp</item>
+    </style>
+
+    <style name="core_Player">
+        <item name="resize_mode">fit</item>
+        <item name="use_artwork">true</item>
+        <item name="use_controller">false</item>
+    </style>
+
+    <style name="core_Player.Vod">
+        <item name="keep_content_on_player_reset">false</item>
+    </style>
+
+    <style name="core_Player.Live">
+        <item name="keep_content_on_player_reset">true</item>
+    </style>
+
+<style name="core_Theme.Base" parent="Theme.Material3.DynamicColors.DayNight.NoActionBar">
+        <item name="android:statusBarColor">@color/core_transparent</item>
+        <item name="android:navigationBarColor">@color/core_transparent</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+    </style>
+
+    <style name="core_Theme.Splash" parent="Theme.SplashScreen">
+        <item name="postSplashScreenTheme">@style/core_Theme.App</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/core_ic_launcher_foreground</item>
+    </style>
+
+    <style name="core_Theme.App" parent="core_Theme.Base" />
+
+    <style name="core_Theme.Crash" parent="core_Theme.Base">
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:windowBackground">@color/grey_700</item>
+    </style>
+
+    <style name="core_Control">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:background">?attr/selectableItemBackgroundBorderless</item>
+        <item name="android:textColor">@color/core_yellow</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:padding">8dp</item>
+    </style>
+
+    <style name="core_ToolbarTextAppearance" parent="TextAppearance.Material3.TitleLarge">
+        <item name="android:textSize">20sp</item>
+        <item name="android:textColor">@color/core_white</item>
+        <item name="titleTextColor">@color/core_white</item>
+    </style>
+
+</resources>

@@ -4,20 +4,24 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
-import android.app.Service;
 import android.content.Intent;
-import android.graphics.drawable.Icon;
 import android.os.Build;
-import android.os.IBinder;
+import android.os.Bundle;
 import android.widget.RemoteViews;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
-import androidx.core.graphics.drawable.IconCompat;
+import androidx.media.MediaBrowserServiceCompat;
+import androidx.media.app.NotificationCompat.MediaStyle;
+import androidx.media.session.MediaButtonReceiver;
+import android.support.v4.media.MediaBrowserCompat;
+import android.support.v4.media.MediaMetadataCompat;
+import android.support.v4.media.session.MediaSessionCompat;
+import android.support.v4.media.session.PlaybackStateCompat;
 
-import com.blankj.utilcode.util.LogUtils;
 import com.kukuqi.tvbox.osc.R;
 import com.kukuqi.tvbox.osc.base.App;
 import com.kukuqi.tvbox.osc.constant.IntentKey;
@@ -28,113 +32,188 @@ import com.kukuqi.tvbox.osc.ui.activity.DetailActivity;
 import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
-import org.json.JSONObject;
 
-public class PlayService extends Service {
+import java.util.Collections;
+import java.util.List;
 
-    static String videoInfo = "MBox&&第一集";
+/** Exposes TVboxOSC playback to Android media controls while preserving the existing UI lifecycle. */
+public class PlayService extends MediaBrowserServiceCompat {
+
+    private static String videoInfo = "TVboxOSC&&正在播放";
     private static MyVideoView videoView;
     private static Intent resumeIntent;
+    private static PlayService instance;
 
-    public static void start(MyVideoView controller,String currentVideoInfo) {
+    private static final String CHANNEL_ID = "tvbox_playback";
+    private static final int NOTIFICATION_ID = 1;
+    private static final String BROWSER_ROOT = "tvboxosc_root";
+
+    private MediaSessionCompat mediaSession;
+
+    public static void start(MyVideoView controller, String currentVideoInfo) {
         start(controller, currentVideoInfo, new Intent(App.getInstance(), DetailActivity.class));
     }
+
     public static void start(MyVideoView controller, String currentVideoInfo, Intent target) {
-        videoInfo = currentVideoInfo;
-        PlayService.videoView = controller;
+        videoView = controller;
+        videoInfo = currentVideoInfo == null ? "TVboxOSC&&正在播放" : currentVideoInfo;
         resumeIntent = target;
         ContextCompat.startForegroundService(App.getInstance(), new Intent(App.getInstance(), PlayService.class));
+        if (instance != null) instance.updateSession();
     }
 
     public static void stop() {
         App.getInstance().stopService(new Intent(App.getInstance(), PlayService.class));
     }
-    public static void stop(MyVideoView owner) { if (owner != null && owner == videoView) stop(); }
 
-
-    private static final String CHANNEL_ID = "MyChannelId";
-    private static final int NOTIFICATION_ID = 1;
+    public static void stop(MyVideoView owner) {
+        if (owner != null && owner == videoView) stop();
+    }
 
     @Override
     public void onCreate() {
         super.onCreate();
+        instance = this;
         EventBus.getDefault().register(this);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel notificationChannel = new NotificationChannel(CHANNEL_ID, "My Channel", NotificationManager.IMPORTANCE_DEFAULT);
-            NotificationManager notificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-            notificationManager.createNotificationChannel(notificationChannel);
-        }
+        createNotificationChannel();
+        createMediaSession();
+    }
+
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "播放控制", NotificationManager.IMPORTANCE_LOW);
+        channel.setDescription("显示正在播放的内容和控制按钮");
+        getSystemService(NotificationManager.class).createNotificationChannel(channel);
+    }
+
+    private void createMediaSession() {
+        mediaSession = new MediaSessionCompat(this, "TVboxOSCPlayback");
+        mediaSession.setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS | MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
+        mediaSession.setSessionActivity(getPendingIntentActivity());
+        mediaSession.setCallback(new MediaSessionCompat.Callback() {
+            @Override public void onPlay() { if (videoView != null) videoView.start(); updateSession(); }
+            @Override public void onPause() { if (videoView != null) videoView.pause(); updateSession(); }
+            @Override public void onStop() { sendControl(IntentKey.BROADCAST_ACTION_CLOSE); }
+            @Override public void onSkipToPrevious() { sendControl(IntentKey.BROADCAST_ACTION_PREV); }
+            @Override public void onSkipToNext() { sendControl(IntentKey.BROADCAST_ACTION_NEXT); }
+            @Override public void onSeekTo(long pos) { if (videoView != null) videoView.seekTo(Math.max(0, pos)); updateSession(); }
+        });
+        mediaSession.setActive(true);
+        setSessionToken(mediaSession.getSessionToken());
+        updateSession();
+    }
+
+    private void sendControl(int action) {
+        sendBroadcast(new Intent(IntentKey.BROADCAST_ACTION).putExtra("action", action).setPackage(getPackageName()));
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (videoView == null) { stopSelf(); return START_NOT_STICKY; }
+        MediaButtonReceiver.handleIntent(mediaSession, intent);
+        if (videoView == null) {
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+        updateSession();
         startForeground(NOTIFICATION_ID, buildNotification());
         return START_NOT_STICKY;
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
-    public void refresh(RefreshEvent event){
-        if (event.type == RefreshEvent.TYPE_REFRESH_NOTIFY){
-            if (event.obj != null) {
-                videoInfo = event.obj.toString();
-            }
-            NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, buildNotification());
-        }
+    public void refresh(RefreshEvent event) {
+        if (event.type != RefreshEvent.TYPE_REFRESH_NOTIFY) return;
+        if (event.obj != null) videoInfo = event.obj.toString();
+        updateSession();
+        if (videoView != null) NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, buildNotification());
     }
 
-    private Notification buildNotification(){
+    private void updateSession() {
+        if (mediaSession == null) return;
+        String[] parts = splitVideoInfo();
+        long position = videoView == null ? 0 : Math.max(0, videoView.getCurrentPosition());
+        long duration = videoView == null ? 0 : Math.max(0, videoView.getDuration());
+        int state = videoView != null && videoView.isPlaying() ? PlaybackStateCompat.STATE_PLAYING : PlaybackStateCompat.STATE_PAUSED;
+        long actions = PlaybackStateCompat.ACTION_PLAY | PlaybackStateCompat.ACTION_PAUSE |
+                PlaybackStateCompat.ACTION_PLAY_PAUSE | PlaybackStateCompat.ACTION_SEEK_TO |
+                PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS | PlaybackStateCompat.ACTION_SKIP_TO_NEXT |
+                PlaybackStateCompat.ACTION_STOP;
+        mediaSession.setPlaybackState(new PlaybackStateCompat.Builder().setActions(actions)
+                .setState(state, position, state == PlaybackStateCompat.STATE_PLAYING ? 1f : 0f).build());
+        MediaMetadataCompat.Builder metadata = new MediaMetadataCompat.Builder()
+                .putString(MediaMetadataCompat.METADATA_KEY_TITLE, parts[0])
+                .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, parts[0])
+                .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, parts[1]);
+        if (duration > 0) metadata.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, duration);
+        mediaSession.setMetadata(metadata.build());
+        mediaSession.setSessionActivity(getPendingIntentActivity());
+    }
 
+    private String[] splitVideoInfo() {
         String[] parts = videoInfo.split("&&", 2);
-        String title = parts[0];
-        String episodes = parts.length > 1 ? parts[1] : "";
-        // 展开布局
-        RemoteViews remoteViews = new RemoteViews(getPackageName(), R.layout.notification_player);
-        remoteViews.setTextViewText(R.id.tv_title, title);
-        remoteViews.setTextViewText(R.id.tv_subtitle, "正在播放: "+episodes);
-        remoteViews.setImageViewResource(R.id.iv_play_pause,videoView.isPlaying()?R.drawable.ic_notify_pause:R.drawable.ic_notify_play);
-        // 创建通知栏操作
-        remoteViews.setOnClickPendingIntent(R.id.iv_previous, getPendingIntent(IntentKey.BROADCAST_ACTION_PREV));
-        remoteViews.setOnClickPendingIntent(R.id.iv_play_pause, getPendingIntent(IntentKey.BROADCAST_ACTION_PLAYPAUSE));
-        remoteViews.setOnClickPendingIntent(R.id.iv_next, getPendingIntent(IntentKey.BROADCAST_ACTION_NEXT));
-        remoteViews.setOnClickPendingIntent(R.id.iv_close, getPendingIntent(IntentKey.BROADCAST_ACTION_CLOSE));
+        return new String[]{parts.length > 0 && !parts[0].isEmpty() ? parts[0] : "TVboxOSC", parts.length > 1 ? parts[1] : "正在播放"};
+    }
 
-        // 普通布局
-        RemoteViews remoteViewsSmall = new RemoteViews(getPackageName(), R.layout.notification_player_small);
-        remoteViewsSmall.setTextViewText(R.id.tv_title, title);
-        remoteViewsSmall.setTextViewText(R.id.tv_subtitle, "正在播放: "+episodes);
+    private Notification buildNotification() {
+        String[] parts = splitVideoInfo();
+        RemoteViews big = new RemoteViews(getPackageName(), R.layout.notification_player);
+        big.setTextViewText(R.id.tv_title, parts[0]);
+        big.setTextViewText(R.id.tv_subtitle, "正在播放: " + parts[1]);
+        big.setImageViewResource(R.id.iv_play_pause, videoView != null && videoView.isPlaying() ? R.drawable.ic_notify_pause : R.drawable.ic_notify_play);
+        big.setOnClickPendingIntent(R.id.iv_previous, getPendingIntent(IntentKey.BROADCAST_ACTION_PREV));
+        big.setOnClickPendingIntent(R.id.iv_play_pause, getPendingIntent(IntentKey.BROADCAST_ACTION_PLAYPAUSE));
+        big.setOnClickPendingIntent(R.id.iv_next, getPendingIntent(IntentKey.BROADCAST_ACTION_NEXT));
+        big.setOnClickPendingIntent(R.id.iv_close, getPendingIntent(IntentKey.BROADCAST_ACTION_CLOSE));
 
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
+        RemoteViews small = new RemoteViews(getPackageName(), R.layout.notification_player_small);
+        small.setTextViewText(R.id.tv_title, parts[0]);
+        small.setTextViewText(R.id.tv_subtitle, "正在播放: " + parts[1]);
+
+        return new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.app_icon)
-                .setContent(remoteViews)
-                .setCustomContentView(remoteViewsSmall)
-                .setCustomBigContentView(remoteViews)
+                .setContent(small)
+                .setCustomContentView(small)
+                .setCustomBigContentView(big)
                 .setContentIntent(getPendingIntentActivity())
-                .setOngoing(true)
-                .setStyle(new NotificationCompat.BigTextStyle().bigText("默认展开"));
-
-        return builder.build();
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setOngoing(videoView != null && videoView.isPlaying())
+                .setStyle(new MediaStyle().setMediaSession(mediaSession.getSessionToken()))
+                .build();
     }
 
     private PendingIntent getPendingIntentActivity() {
         Intent intent = resumeIntent == null ? new Intent(this, DetailActivity.class) : resumeIntent;
         return PendingIntent.getActivity(this, 1, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
-    public static PendingIntent getPendingIntent(int actionCode) {
-        return PendingIntent.getBroadcast(App.getInstance(), actionCode, new Intent(IntentKey.BROADCAST_ACTION).putExtra("action", actionCode).setPackage(App.getInstance().getPackageName()),PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-    }
 
-    @Override
-    public void onDestroy() {
-        EventBus.getDefault().unregister(this);
-        stopForeground(true);
-        videoView = null; resumeIntent = null;
-        super.onDestroy();
+    public static PendingIntent getPendingIntent(int actionCode) {
+        return PendingIntent.getBroadcast(App.getInstance(), actionCode,
+                new Intent(IntentKey.BROADCAST_ACTION).putExtra("action", actionCode).setPackage(App.getInstance().getPackageName()),
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
     @Nullable
     @Override
-    public IBinder onBind(Intent intent) {
-        return null;
+    public BrowserRoot onGetRoot(@NonNull String clientPackageName, int clientUid, @Nullable Bundle rootHints) {
+        return new BrowserRoot(BROWSER_ROOT, null);
+    }
+
+    @Override
+    public void onLoadChildren(@NonNull String parentId, @NonNull Result<List<MediaBrowserCompat.MediaItem>> result) {
+        result.sendResult(Collections.emptyList());
+    }
+
+    @Override
+    public void onDestroy() {
+        if (EventBus.getDefault().isRegistered(this)) EventBus.getDefault().unregister(this);
+        stopForeground(true);
+        if (mediaSession != null) {
+            mediaSession.setActive(false);
+            mediaSession.release();
+            mediaSession = null;
+        }
+        instance = null;
+        videoView = null;
+        resumeIntent = null;
+        super.onDestroy();
     }
 }

@@ -1,20 +1,15 @@
 package com.kukuqi.tvbox.osc.danmaku;
 
-import android.net.Uri;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
 import com.kukuqi.tvbox.osc.api.ApiConfig;
 import com.kukuqi.tvbox.osc.util.SourceDescriptor;
 import com.kukuqi.tvbox.osc.util.SourceManager;
-import com.lzy.okgo.OkGo;
 import com.orhanobut.hawk.Hawk;
 import java.util.ArrayList;
 import java.util.List;
-import okhttp3.Call;
-import okhttp3.MediaType;
-import okhttp3.Request;
-import okhttp3.RequestBody;
-import okhttp3.Response;
+import com.kukuqi.tvbox.engine.api.DanmakuApi;
+import com.kukuqi.tvbox.engine.setting.DanmakuSetting;
 
 public final class DanmakuController {
     private final DanmakuView view;
@@ -23,9 +18,8 @@ public final class DanmakuController {
     public String status() { return status; }
     private volatile int generation;
     private static final java.util.concurrent.ExecutorService PARSER = java.util.concurrent.Executors.newSingleThreadExecutor();
-    private Call search;
     public DanmakuController(DanmakuView view) { this.view = view; }
-    public void cancel() { generation++; if (search != null) search.cancel(); }
+    public void cancel() { generation++; DanmakuApi.cancel(); }
     public void load(JsonElement source, String name, String episode) {
         cancel(); view.setTimeline(null); status = "正在加载";
         if (!Hawk.get("danmaku_load", false)) { status = "已关闭"; return; }
@@ -43,23 +37,19 @@ public final class DanmakuController {
     private void match(String api, String name, String episode, List<String> sources, int id) {
         if (id != generation) return;
         try {
-        Request.Builder request = new Request.Builder();
-        if (api.contains("{name}") || api.contains("{episode}")) request.url(api.replace("{name}", Uri.encode(name)).replace("{episode}", Uri.encode(episode)));
-        else {
-            com.google.gson.JsonObject body = new com.google.gson.JsonObject(); body.addProperty("name", name); body.addProperty("episode", episode);
-            request.url(api).post(RequestBody.create(MediaType.parse("application/json; charset=utf-8"), body.toString()));
-        }
-            search = OkGo.getInstance().getOkHttpClient().newCall(request.build());
-            final Call requestCall = search;
-            PARSER.execute(() -> {
+            DanmakuSetting.putApiUrl(api);
+            DanmakuApi.search(name, episode, items -> MAIN.post(() -> {
+                if (id != generation) return;
                 List<String> found = new ArrayList<>();
-                try (Response response = requestCall.execute()) {
-                    if (response.isSuccessful() && response.body() != null) found.addAll(urls(JsonParser.parseString(response.body().string())));
-                    status = "匹配 HTTP " + response.code() + "，地址数 " + found.size();
-                } catch (Exception ignored) { status = "匹配请求失败 " + ignored.getClass().getSimpleName(); }
+                for (com.kukuqi.tvbox.engine.bean.Danmaku item : items) if (!item.isEmpty()) found.add(item.getUrl());
+                status = "匹配地址数 " + found.size();
                 found.addAll(sources);
-                MAIN.post(() -> { if (id == generation) fetch(found, 0, id, () -> {}); });
-            });
+                fetch(found, 0, id, () -> {});
+            }), failure -> MAIN.post(() -> {
+                if (id != generation) return;
+                status = "匹配请求失败 " + failure.getClass().getSimpleName();
+                fetch(sources, 0, id, () -> {});
+            }));
         } catch (Exception ignored) { status = "匹配格式错误"; fetch(sources, 0, id, () -> {}); }
     }
     private void fetch(List<String> urls, int index, int id, Runnable failed) {

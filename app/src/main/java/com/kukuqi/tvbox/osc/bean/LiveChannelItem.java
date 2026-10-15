@@ -20,6 +20,9 @@ public class LiveChannelItem {
     private int channelNum;
     private String channelName;
     private String tvgId = "", tvgName = "", epgUrl = "";
+    private com.kukuqi.tvbox.engine.bean.Channel coreChannel;
+    public com.kukuqi.tvbox.engine.bean.Channel getCoreChannel() { return coreChannel; }
+    public void setCoreChannel(com.kukuqi.tvbox.engine.bean.Channel value) { coreChannel = value; }
     private java.util.Map<String, String> headers = new java.util.LinkedHashMap<>();
     public java.util.Map<String, String> getHeaders() { return headers == null ? new java.util.LinkedHashMap<>() : headers; }
     public void setHeaders(java.util.Map<String, String> value) { headers = value; }

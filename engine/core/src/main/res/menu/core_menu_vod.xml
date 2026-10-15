@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <item
+        android:id="@+id/search"
+        android:icon="@drawable/core_ic_action_search"
+        android:title="@string/core_menu_search"
+        app:iconTint="@color/core_white"
+        app:showAsAction="always" />
+
+    <item
+        android:id="@+id/keep"
+        android:icon="@drawable/core_ic_action_keep"
+        android:title="@string/core_app_keep"
+        app:iconTint="@color/core_white"
+        app:showAsAction="always" />
+
+    <item
+        android:id="@+id/history"
+        android:icon="@drawable/core_ic_action_history"
+        android:title="@string/core_app_history"
+        app:iconTint="@color/core_white"
+        app:showAsAction="always" />
+
+</menu>

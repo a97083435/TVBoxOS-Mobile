@@ -92,27 +92,26 @@ class SettingsController(
         mBinding.llVodHome.setOnClickListener { com.kukuqi.tvbox.osc.ui.dialog.FeatureSettingsDialog.homeSite(host) }
         mBinding.llLiveHome.setOnClickListener { selectLivePlaylist() }
         mBinding.llSourceHistory.setOnClickListener {
-            android.app.AlertDialog.Builder(host).setTitle("来源历史").setItems(arrayOf("点播", "直播", "壁纸")) { _, index ->
-                when (index) {
-                    0 -> jumpActivity(SubscriptionActivity::class.java)
-                    1 -> mBinding.llLiveApi.performClick()
-                    else -> mBinding.llWallpaper.performClick()
-                }
-            }.show()
+            com.kukuqi.tvbox.osc.ui.dialog.FeatureSettingsDialog.sourceHistory(
+                host,
+                { jumpActivity(SubscriptionActivity::class.java) },
+                { mBinding.llLiveApi.performClick() },
+                { mBinding.llWallpaper.performClick() }
+            )
         }
         mBinding.llHotSearch.setOnClickListener { jumpActivity(com.kukuqi.tvbox.osc.ui.activity.FastSearchActivity::class.java) }
         mBinding.llImageSize.setOnClickListener {
-            android.app.AlertDialog.Builder(host).setTitle("图片尺寸").setSingleChoiceItems(arrayOf("小", "中", "大", "特大"), Hawk.get("poster_size", 2)) { dialog, index ->
-                Hawk.put("poster_size", index); refresh(); dialog.dismiss()
-            }.setNegativeButton("取消", null).show()
+            com.kukuqi.tvbox.osc.ui.dialog.FeatureSettingsDialog.select(host, "图片尺寸", arrayOf("小", "中", "大", "特大"), Hawk.get("poster_size", 2)) { index ->
+                Hawk.put("poster_size", index); refresh()
+            }
         }
         mBinding.llThemeColor.setOnClickListener {
-            android.app.AlertDialog.Builder(host).setTitle("主题色彩").setSingleChoiceItems(ThemeColors.NAMES, Hawk.get(ThemeColors.KEY, 0)) { dialog, index ->
-                Hawk.put(ThemeColors.KEY, index); ThemeColors.apply(host.window.decorView); refresh(); dialog.dismiss()
-            }.setNegativeButton("取消", null).show()
+            com.kukuqi.tvbox.osc.ui.dialog.FeatureSettingsDialog.select(host, "主题色彩", ThemeColors.NAMES, Hawk.get(ThemeColors.KEY, 0)) { index ->
+                Hawk.put(ThemeColors.KEY, index); ThemeColors.apply(host.window.decorView); refresh()
+            }
         }
 
-        mBinding.tvMediaCodec.text = Hawk.get(HawkConfig.IJK_CODEC, "")
+        mBinding.tvMediaCodec.text = if (Hawk.get(HawkConfig.IJK_CODEC, "软解码").contains("软")) "软解码" else "硬解码"
 
         mBinding.tvDns.text = OkGoHelper.dnsHttpsList[Hawk.get(HawkConfig.DOH_URL, 0)]
         mBinding.tvHomeRec.text = getHomeRecName(Hawk.get(HawkConfig.HOME_REC, 0))
@@ -239,8 +238,7 @@ class SettingsController(
                 override fun click(value: String?, pos: Int) {
                     mBinding.tvDns.text = OkGoHelper.dnsHttpsList[pos]
                     Hawk.put(HawkConfig.DOH_URL, pos)
-                    val url = OkGoHelper.getDohUrl(pos)
-                    OkGoHelper.dnsOverHttps.setUrl(if (url.isEmpty()) null else HttpUrl.get(url))
+                    OkGoHelper.updateDns()
                     IjkMediaPlayer.toggleDotPort(pos > 0)
                 }
 
@@ -252,38 +250,13 @@ class SettingsController(
         }
 
         mBinding.llMediaCodec.setOnClickListener { v: View? ->
-            val ijkCodes = ApiConfig.get().ijkCodes
-            if (ijkCodes == null || ijkCodes.size == 0) return@setOnClickListener
             FastClickCheckUtil.check(v)
-            var defaultPos = 0
-            val ijkSel = Hawk.get(HawkConfig.IJK_CODEC, "")
-            for (j in ijkCodes.indices) {
-                if (ijkSel == ijkCodes[j].name) {
-                    defaultPos = j
-                    break
-                }
+            val names = arrayOf("硬解码", "软解码")
+            val selected = if (Hawk.get(HawkConfig.IJK_CODEC, "软解码").contains("软")) 1 else 0
+            com.kukuqi.tvbox.osc.ui.dialog.FeatureSettingsDialog.select(host, "解码方式（下次播放生效）", names, selected) { index ->
+                Hawk.put(HawkConfig.IJK_CODEC, names[index])
+                mBinding.tvMediaCodec.text = names[index]
             }
-            val dialog = SelectDialog<IJKCode>(host)
-            dialog.setTip("请选择IJK解码")
-            dialog.setAdapter(object : SelectDialogInterface<IJKCode?> {
-                override fun click(value: IJKCode?, pos: Int) {
-                    value?.selected(true)
-                    mBinding.tvMediaCodec.text = value?.name
-                }
-
-                override fun getDisplay(code: IJKCode?): String {
-                    return code?.name ?: ""
-                }
-            }, object : DiffUtil.ItemCallback<IJKCode>() {
-                override fun areItemsTheSame(oldItem: IJKCode, newItem: IJKCode): Boolean {
-                    return oldItem === newItem
-                }
-
-                override fun areContentsTheSame(oldItem: IJKCode, newItem: IJKCode): Boolean {
-                    return oldItem.name.contentEquals(newItem.name)
-                }
-            }, ijkCodes, defaultPos)
-            dialog.show()
         }
 
         mBinding.llScale.setOnClickListener { v: View? ->
@@ -519,11 +492,11 @@ class SettingsController(
         }
         val names = source!!.lives().filter { it.isJsonObject && !com.kukuqi.tvbox.osc.util.SourceDescriptor.string(it.asJsonObject, "url").isEmpty() }
             .map { com.kukuqi.tvbox.osc.util.SourceDescriptor.string(it.asJsonObject, "name").ifEmpty { "直播线路" } }
-        android.app.AlertDialog.Builder(host).setTitle("直播线路").setItems(playlists.mapIndexed { index, address -> names.getOrNull(index) ?: address }.toTypedArray()) { _, index ->
+        com.kukuqi.tvbox.osc.ui.dialog.FeatureSettingsDialog.actions(host, "直播线路", playlists.mapIndexed { index, address -> names.getOrNull(index) ?: address }.toTypedArray()) { index ->
             Hawk.put("live_playlist_url", playlists[index])
             EventBus.getDefault().post(com.kukuqi.tvbox.osc.event.SourceChangedEvent(true))
             ToastUtils.showShort("直播线路已切换")
-        }.show()
+        }
     }
 
     private fun pickWallpaper() {

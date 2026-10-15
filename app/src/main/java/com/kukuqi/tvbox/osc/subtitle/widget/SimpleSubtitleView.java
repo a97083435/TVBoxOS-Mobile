@@ -61,6 +61,7 @@ public class SimpleSubtitleView extends TextView
     private static final String EMPTY_TEXT = "";
 
     private SubtitleEngine mSubtitleEngine;
+    private com.kukuqi.tvbox.osc.player.CorePlayer corePlayer;
 
     public boolean isInternal = false;
 
@@ -121,12 +122,25 @@ public class SimpleSubtitleView extends TextView
 
     @Override
     public void setSubtitlePath(final String path) {
+        if (corePlayer != null) {
+            mSubtitleEngine.reset();
+            isInternal = true;
+            setText(EMPTY_TEXT);
+            corePlayer.setExternalSubtitle(path);
+            String key = getPlaySubtitleCacheKey();
+            if (key != null && !key.isEmpty()) CacheManager.save(MD5.string2MD5(key), path);
+            return;
+        }
         isInternal = false;
         mSubtitleEngine.setSubtitlePath(path);
     }
 
     @Override
     public void setSubtitleDelay(Integer mseconds) {
+        if (corePlayer != null && corePlayer.manager() != null) {
+            corePlayer.manager().setTextOffsetMs(corePlayer.manager().getTextOffsetMs() + mseconds);
+            return;
+        }
         mSubtitleEngine.setSubtitleDelay(mseconds);
     }
 
@@ -177,7 +191,18 @@ public class SimpleSubtitleView extends TextView
 
     @Override
     public void bindToMediaPlayer(AbstractPlayer mediaPlayer) {
+        corePlayer = mediaPlayer instanceof com.kukuqi.tvbox.osc.player.CorePlayer ? (com.kukuqi.tvbox.osc.player.CorePlayer) mediaPlayer : null;
         mSubtitleEngine.bindToMediaPlayer(mediaPlayer);
+    }
+
+    @Override public void setTextColor(int color) {
+        super.setTextColor(color);
+        if (corePlayer != null) corePlayer.setSubtitleStyle(getTextSize(), color);
+    }
+
+    @Override public void setTextColor(android.content.res.ColorStateList colors) {
+        super.setTextColor(colors);
+        if (corePlayer != null) corePlayer.setSubtitleStyle(getTextSize(), getCurrentTextColor());
     }
 
     @Override
@@ -193,7 +218,13 @@ public class SimpleSubtitleView extends TextView
     @Override
     protected void onDetachedFromWindow() {
         destroy();
+        corePlayer = null;
         super.onDetachedFromWindow();
+    }
+
+    @Override protected void onVisibilityChanged(android.view.View changedView, int visibility) {
+        super.onVisibilityChanged(changedView, visibility);
+        if (changedView == this && corePlayer != null) corePlayer.setSubtitleEnabled(visibility == VISIBLE && isInternal);
     }
 
     @Override
@@ -225,6 +256,7 @@ public class SimpleSubtitleView extends TextView
     public void setTextSize(float size) {
         super.setTextSize(size);
         backGroundText.setTextSize(size);
+        if (corePlayer != null) corePlayer.setSubtitleStyle(getTextSize(), getCurrentTextColor());
     }
 
     @Override

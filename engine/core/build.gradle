@@ -1,0 +1,69 @@
+plugins { id 'com.android.library' }
+def hostBuild = rootProject.file('app/build.gradle').text
+def hostVersionName = (hostBuild =~ /versionName\s+'([^']+)'/)[0][1]
+def hostVersionCode = (hostBuild =~ /versionCode\s+(\d+)/)[0][1]
+android {
+    namespace 'com.kukuqi.tvbox.engine'
+    compileSdk 37
+    defaultConfig {
+        minSdk 24
+        buildConfigField 'String', 'APPLICATION_ID', '\"com.kukuqi.tvbox.osc\"'
+        buildConfigField 'String', 'FLAVOR', '\"mobile\"'
+        buildConfigField 'String', 'VERSION_NAME', '"' + hostVersionName + '"'
+        buildConfigField 'int', 'VERSION_CODE', hostVersionCode
+        javaCompileOptions { annotationProcessorOptions { arguments = ['room.schemaLocation': "$projectDir/schemas", 'eventBusIndex': 'com.kukuqi.tvbox.engine.event.EventIndex'] } }
+    }
+    buildFeatures { buildConfig true; viewBinding true }
+    sourceSets.main.java.exclude(
+            '**/ExoSubtitleController.java',
+            '**/ui/**',
+            '**/Startup.java',
+            '**/Updater.java',
+            '**/utils/Github.java',
+            '**/utils/FileChooser.java'
+    )
+    compileOptions {
+        coreLibraryDesugaringEnabled true
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+    lint { abortOnError false }
+}
+dependencies {
+    api fileTree(dir: "libs", include: ["*.aar"])
+    implementation project(':source-runtime')
+    implementation project(':python-runtime')
+    implementation project(':js-runtime')
+    implementation libs.appcompat
+    implementation libs.lifecycle.service
+    implementation libs.media
+    implementation libs.palette
+    implementation libs.recyclerview
+    implementation libs.room.runtime
+    implementation libs.splashscreen
+    implementation libs.swiperefreshlayout
+    implementation libs.viewpager2
+    implementation libs.android.gif.drawable
+    implementation libs.bundles.glide
+    // DLNACastManager is part of the public engine API and its superclass and
+    // return types come from jUPnP, so consumers need these classes at compile time.
+    api libs.bundles.jupnp
+    implementation project(':crash')
+    implementation libs.eventbus
+    implementation libs.flexbox
+    implementation libs.rtmp.client
+    implementation libs.lottie
+    implementation libs.material
+    implementation libs.materialdesigncolors
+    implementation libs.nanohttpd
+    implementation libs.newpipeextractor
+    implementation libs.permissionx
+    implementation libs.simple.xml
+    implementation libs.textdrawable
+    implementation libs.biometric
+    implementation libs.zxing.android.embedded
+    annotationProcessor libs.room.compiler
+    annotationProcessor libs.eventbus.annotation.processor
+    annotationProcessor libs.glide.compiler
+    coreLibraryDesugaring libs.desugar
+}

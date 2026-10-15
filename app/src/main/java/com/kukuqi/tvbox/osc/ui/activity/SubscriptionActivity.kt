@@ -304,7 +304,7 @@ class SubscriptionActivity : BaseVbActivity<ActivitySubscriptionBinding>() {
 
                     @Throws(Throwable::class)
                     override fun convertResponse(response: okhttp3.Response): String {
-                        return response.body()!!.string()
+                        return response.body!!.string()
                     }
 
                     override fun onError(response: Response<String?>) {
@@ -393,7 +393,7 @@ class SubscriptionActivity : BaseVbActivity<ActivitySubscriptionBinding>() {
             .tag(CLEANUP_SUBSCRIPTIONS_TAG)
             .execute(object : AbsCallback<String?>() {
                 override fun convertResponse(response: okhttp3.Response): String {
-                    return response.body()!!.string()
+                    return response.body!!.string()
                 }
 
                 override fun onSuccess(response: Response<String?>) {
@@ -476,8 +476,8 @@ class SubscriptionActivity : BaseVbActivity<ActivitySubscriptionBinding>() {
     private fun subscriptionKey(url: String): String {
         val value = url.trim()
         val uri = Uri.parse(value)
-        val scheme = uri.scheme?.toLowerCase(Locale.ROOT) ?: return value
-        val host = uri.host?.toLowerCase(Locale.ROOT) ?: return value
+        val scheme = uri.scheme?.lowercase(Locale.ROOT) ?: return value
+        val host = uri.host?.lowercase(Locale.ROOT) ?: return value
         if (scheme != "http" && scheme != "https") {
             return value
         }

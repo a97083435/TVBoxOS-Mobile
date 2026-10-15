@@ -62,6 +62,7 @@ public class ApiConfig {
     private List<String> vipParseFlags;
     private List<IJKCode> ijkCodes;
     private String spider = null;
+    private JsonObject coreDocument;
     public String wallpaper = "";
     private String danmakuApi = "";
     public String getDanmakuApi() { return danmakuApi; }
@@ -155,81 +156,10 @@ public class ApiConfig {
     }
 
     public void loadJar(boolean useCache, String spider, LoadConfigCallback callback) {
-        String[] urls = spider.split(";md5;");
-        String jarUrl = urls[0];
-        String md5 = urls.length > 1 ? urls[1].trim() : "";
-        File cache = new File(App.getInstance().getFilesDir().getAbsolutePath() + "/csp.jar");
-        if (com.kukuqi.tvbox.osc.util.SourceManager.isLocal(jarUrl)) {
-            final String localJar = jarUrl;
-            com.kukuqi.tvbox.osc.util.HeavyTaskUtil.executeNewTask(() -> {
-                boolean success = false;
-                try {
-                    com.kukuqi.tvbox.osc.util.SourceManager.copyLocal(localJar, cache);
-                    success = (md5.isEmpty() || md5.equalsIgnoreCase(MD5.getFileMd5(cache))) && jarLoader.load(cache.getAbsolutePath());
-                } catch (Exception ignored) {}
-                boolean loaded = success;
-                new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> { if (loaded) callback.success(); else callback.error("本地模块加载失败"); });
-            });
-            return;
-        }
-
-        if (!md5.isEmpty() || useCache) {
-            if (cache.exists() && (useCache || MD5.getFileMd5(cache).equalsIgnoreCase(md5))) {
-                if (jarLoader.load(cache.getAbsolutePath())) {
-                    callback.success();
-                } else {
-                    callback.error("");
-                }
-                return;
-            }
-        }
-
-        boolean isJarInImg = jarUrl.startsWith("img+");
-        jarUrl = jarUrl.replace("img+", "");
-        OkGo.<File>get(jarUrl)
-                .headers("User-Agent", userAgent)
-                .headers("Accept", requestAccept)
-                .execute(new AbsCallback<File>() {
-
-            @Override
-            public File convertResponse(okhttp3.Response response) throws Throwable {
-                File cacheDir = cache.getParentFile();
-                if (!cacheDir.exists())
-                    cacheDir.mkdirs();
-                if (cache.exists())
-                    cache.delete();
-                FileOutputStream fos = new FileOutputStream(cache);
-                if(isJarInImg) {
-                    String respData = response.body().string();
-                    byte[] imgJar = getImgJar(respData);
-                    fos.write(imgJar);
-                } else {
-                    fos.write(response.body().bytes());
-                }
-                fos.flush();
-                fos.close();
-                return cache;
-            }
-
-            @Override
-            public void onSuccess(Response<File> response) {
-                if (response.body().exists()) {
-                    if (jarLoader.load(response.body().getAbsolutePath())) {
-                        callback.success();
-                    } else {
-                        callback.error("");
-                    }
-                } else {
-                    callback.error("");
-                }
-            }
-
-            @Override
-            public void onError(Response<File> response) {
-                super.onError(response);
-                callback.error("");
-            }
-        });
+        com.kukuqi.tvbox.osc.core.CoreBridge.loadConfig(
+            Hawk.get(HawkConfig.API_URL, ""), Hawk.get(HawkConfig.HOME_API, ""),
+            coreDocument,
+            callback);
     }
 
     private void parseJson(String apiUrl, File f) throws Throwable {
@@ -284,6 +214,7 @@ public class ApiConfig {
 
     private void parseJson(String apiUrl, String jsonStr) {
         JsonObject infoJson = new Gson().fromJson(jsonStr, JsonObject.class);
+        coreDocument = infoJson;
         com.kukuqi.tvbox.osc.util.ConfigCompat.normalize(infoJson, apiUrl.split(";pk;", 2)[0]);
         // spider
         spider = DefaultConfig.safeJsonString(infoJson, "spider", "");
@@ -527,6 +458,7 @@ public class ApiConfig {
             for (JsonElement channelElement : ((JsonObject) groupElement).get("channels").getAsJsonArray()) {
                 JsonObject obj = (JsonObject) channelElement;
                 LiveChannelItem liveChannelItem = new LiveChannelItem();
+                if (obj.has("core")) liveChannelItem.setCoreChannel(com.kukuqi.tvbox.engine.bean.Channel.objectFrom(obj.get("core")));
                 liveChannelItem.setChannelName(obj.get("name").getAsString().trim());
                 liveChannelItem.setTvgId(com.kukuqi.tvbox.osc.util.SourceDescriptor.string(obj, "tvg-id"));
                 liveChannelItem.setTvgName(com.kukuqi.tvbox.osc.util.SourceDescriptor.string(obj, "tvg-name"));
@@ -562,9 +494,7 @@ public class ApiConfig {
     }
 
     public Spider getCSP(SourceBean sourceBean) {
-        boolean js = sourceBean.getApi().endsWith(".js") || sourceBean.getApi().contains(".js?");
-        if (js) return jsLoader.getSpider(sourceBean.getKey(), sourceBean.getApi(), sourceBean.getExt(), sourceBean.getJar());
-        return jarLoader.getSpider(sourceBean.getKey(), sourceBean.getApi(), sourceBean.getExt(), sourceBean.getJar());
+        return com.kukuqi.tvbox.osc.core.CoreBridge.spider(sourceBean);
     }
 
     public void resetModules() {
@@ -572,7 +502,7 @@ public class ApiConfig {
     }
 
     public Object[] proxyLocal(Map param) {
-        return jarLoader.proxyInvoke(param);
+        try { return com.kukuqi.tvbox.engine.api.loader.BaseLoader.get().proxy(param); } catch (Exception e) { return null; }
     }
 
     public JSONObject jsonExt(String key, LinkedHashMap<String, String> jxs, String url) {
@@ -613,6 +543,7 @@ public class ApiConfig {
     public void setSourceBean(SourceBean sourceBean) {
         this.mHomeSource = sourceBean;
         Hawk.put(HawkConfig.HOME_API, sourceBean.getKey());
+        com.kukuqi.tvbox.osc.core.CoreBridge.selectHome(sourceBean.getKey());
     }
 
     public void setDefaultParse(ParseBean parseBean) {
@@ -621,6 +552,7 @@ public class ApiConfig {
         this.mDefaultParse = parseBean;
         Hawk.put(HawkConfig.DEFAULT_PARSE, parseBean.getName());
         parseBean.setDefault(true);
+        com.kukuqi.tvbox.osc.core.CoreBridge.selectParse(parseBean.getName());
     }
 
     public ParseBean getDefaultParse() {

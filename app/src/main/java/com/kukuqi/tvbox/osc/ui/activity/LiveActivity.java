@@ -434,6 +434,8 @@ public class LiveActivity extends BaseActivity {
 
     @Override
     protected void onDestroy() {
+        corePlayGeneration++;
+        com.kukuqi.tvbox.engine.player.extractor.Source.get().stop();
         epgGeneration++;
         if (epgRequest != null) epgRequest.cancel();
         if (epgDialog != null) epgDialog.dismiss();
@@ -525,10 +527,48 @@ public class LiveActivity extends BaseActivity {
         }
         showBottomEpg();
 
-        mVideoView.setUrl(currentLiveChannelItem.getUrl(), currentLiveChannelItem.getHeaders());
-       // showChannelInfo();
-        mVideoView.start();
+        startCoreChannel();
         return true;
+    }
+
+    private int corePlayGeneration;
+    private void startCoreChannel() {
+        startCoreChannel(null);
+    }
+
+    public void playEpgProgramme(EpgSchedule.Programme programme) {
+        if (!isCurrentLiveChannelValid()) return;
+        com.kukuqi.tvbox.engine.bean.Channel channel = com.kukuqi.tvbox.osc.core.LiveCoreBridge.channel(currentLiveChannelItem);
+        if (programme.start > System.currentTimeMillis()) { ToastUtils.showShort("该节目尚未开始"); return; }
+        if (!channel.hasCatchup()) { ToastUtils.showShort("当前频道没有提供回看地址"); return; }
+        com.kukuqi.tvbox.engine.bean.EpgData data = new com.kukuqi.tvbox.engine.bean.EpgData();
+        data.setTitle(programme.title); data.setStartTime(programme.start); data.setEndTime(programme.end);
+        mVideoView.release();
+        isBack = true;
+        startCoreChannel(data);
+    }
+
+    private void startCoreChannel(com.kukuqi.tvbox.engine.bean.EpgData programme) {
+        final int generation = ++corePlayGeneration;
+        final LiveChannelItem selected = currentLiveChannelItem;
+        final com.kukuqi.tvbox.engine.bean.Channel channel = com.kukuqi.tvbox.osc.core.LiveCoreBridge.channel(selected);
+        com.kukuqi.tvbox.osc.util.HeavyTaskUtil.executeNewTask(() -> {
+            try {
+                com.kukuqi.tvbox.engine.bean.Result result = programme == null
+                        ? com.kukuqi.tvbox.engine.api.LiveApi.getUrl(channel)
+                        : com.kukuqi.tvbox.engine.api.LiveApi.getUrl(channel, programme);
+                runOnUiThread(() -> {
+                    if (generation != corePlayGeneration || isDestroyed() || selected != currentLiveChannelItem) return;
+                    livePlayerManager.prepareCore(mVideoView,result);
+                    mVideoView.setUrl(result.getRealUrl(),result.getHeader());
+                    mVideoView.start();
+                });
+            } catch (Exception failure) {
+                runOnUiThread(() -> {
+                    if (generation == corePlayGeneration && !isDestroyed()) ToastUtils.showShort("直播播放地址加载失败，请切换线路");
+                });
+            }
+        });
     }
 
     private void playNext() {
@@ -898,8 +938,7 @@ public class LiveActivity extends BaseActivity {
             case 2://播放解码
                 mVideoView.release();
                 livePlayerManager.changeLivePlayerType(mVideoView, position, currentLiveChannelItem.getChannelName());
-                mVideoView.setUrl(currentLiveChannelItem.getUrl(), currentLiveChannelItem.getHeaders());
-                mVideoView.start();
+                startCoreChannel();
                 break;
             case 3://超时换源
                 Hawk.put(HawkConfig.LIVE_CONNECT_TIMEOUT, position);
@@ -1091,7 +1130,7 @@ public class LiveActivity extends BaseActivity {
         ArrayList<ArrayList<String>> itemsArrayList = new ArrayList<>();
         ArrayList<String> sourceItems = new ArrayList<>();
         ArrayList<String> scaleItems = new ArrayList<>(Arrays.asList("默认", "16:9", "4:3", "填充", "原始", "裁剪"));
-        ArrayList<String> playerDecoderItems = new ArrayList<>(Arrays.asList("系统", "ijk硬解", "ijk软解", "exo"));
+        ArrayList<String> playerDecoderItems = new ArrayList<>(Arrays.asList("Exo", "MPV硬解", "MPV软解", "Exo"));
         ArrayList<String> timeoutItems = new ArrayList<>(Arrays.asList("5s", "10s", "15s", "20s", "25s", "30s"));
         ArrayList<String> personalSettingItems = new ArrayList<>(Arrays.asList("显示时间", "显示网速", "换台反转", "跨选分类"));
         itemsArrayList.add(sourceItems);
@@ -1362,8 +1401,7 @@ public class LiveActivity extends BaseActivity {
     public void changePlayer(int position){
         mVideoView.release();
         livePlayerManager.changeLivePlayerType(mVideoView, position, currentLiveChannelItem.getChannelName());
-        mVideoView.setUrl(currentLiveChannelItem.getUrl(), currentLiveChannelItem.getHeaders());
-        mVideoView.start();
+        startCoreChannel();
     }
 
     /**

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <declare-styleable name="core_CustomRecyclerView">
+        <attr name="android:minWidth" />
+        <attr name="android:minHeight" />
+        <attr name="core_maxWidth" format="dimension" />
+        <attr name="core_maxHeight" format="dimension" />
+    </declare-styleable>
+</resources>
