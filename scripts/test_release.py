@@ -65,6 +65,25 @@ class ReleaseTest(unittest.TestCase):
         self.assertEqual(apk.stat().st_size, manifest['size'])
         self.assertEqual('a' * 64, manifest['signer_sha256'])
         self.assertIn('/owner/repo/', manifest['apk_url'])
+    def test_metadata_accepts_build_tools_37_scheme_labels(self):
+        apk = self.root / 'TVboxOSC-v3.0.0.apk'
+        apk.write_bytes(b'signed apk')
+        certificate = 'A' * 64
+        signatures = 'Number of signers: 1\nV2 Signer: certificate SHA-256 digest: ' + certificate + '\nV3.2 Signer: certificate SHA-256 digest: ' + certificate
+        outputs = ["package: name='com.kukuqi.tvbox.osc' versionCode='300' versionName='3.0.0'", signatures]
+        with patch('release.app_version', return_value=('3.0.0', 300, 'com.kukuqi.tvbox.osc')), patch('release.subprocess.check_output', side_effect=outputs):
+            release.metadata(apk, self.manifest_path, 'owner/repo', 'aapt', 'apksigner')
+        self.assertEqual('a' * 64, json.loads(self.manifest_path.read_text())['signer_sha256'])
+
+    def test_metadata_refuses_conflicting_signing_certificates(self):
+        apk = self.root / 'TVboxOSC-v3.0.0.apk'
+        apk.write_bytes(b'signed apk')
+        signatures = 'V2 Signer: certificate SHA-256 digest: ' + 'a' * 64 + '\nV3 Signer: certificate SHA-256 digest: ' + 'b' * 64
+        outputs = ["package: name='com.kukuqi.tvbox.osc' versionCode='300' versionName='3.0.0'", signatures]
+        with patch('release.app_version', return_value=('3.0.0', 300, 'com.kukuqi.tvbox.osc')), patch('release.subprocess.check_output', side_effect=outputs):
+            with self.assertRaises(ValueError):
+                release.metadata(apk, self.manifest_path, 'owner/repo', 'aapt', 'apksigner')
+
     def test_tag_mismatch_fails_before_github_access(self):
         with (patch('release.app_version', return_value=('3.0.0', 300, 'com.kukuqi.tvbox.osc')),
               patch.dict(os.environ, {'GITHUB_REF': 'refs/tags/v3.0.1', 'GITHUB_REF_NAME': 'v3.0.1'})):

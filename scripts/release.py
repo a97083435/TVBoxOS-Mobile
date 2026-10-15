@@ -94,13 +94,15 @@ def metadata(apk, output, repository, aapt, apksigner):
     if 'application-debuggable' in badging:
         raise ValueError('Refusing to publish a debuggable APK')
     signatures = subprocess.check_output([apksigner, 'verify', '--verbose', '--print-certs', str(apk)], text=True)
-    signer = re.search(r'Signer #1 certificate SHA-256 digest: ([a-fA-F0-9]{64})', signatures)
-    if not signer:
-        raise ValueError('APK has no verified signing certificate')
+    signers = {value.lower() for value in re.findall(
+        r'^(?:Signer #\d+|V\d+(?:\.\d+)? Signer(?: #\d+)?):? certificate SHA-256 digest: ([a-fA-F0-9]{64})$',
+        signatures, re.MULTILINE)}
+    if len(signers) != 1:
+        raise ValueError('APK must have one unambiguous verified signing certificate')
     checksum = sha256_file(apk)
     manifest = {'version': version, 'version_code': code, 'package_name': package,
                 'apk_url': f'https://github.com/{repository}/releases/download/v{version}/{apk.name}',
-                'sha256': checksum, 'size': apk.stat().st_size, 'signer_sha256': signer.group(1).lower()}
+                'sha256': checksum, 'size': apk.stat().st_size, 'signer_sha256': next(iter(signers))}
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     print('Verified signed APK; generated', output)
