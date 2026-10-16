@@ -41,6 +41,7 @@ public class PlayingControlDialog extends BottomPopupView {
         mBinding = DialogPlayingControlBinding.bind(getPopupImplView());
 
         initView();
+        mBinding.corePlaybackOptions.setOnClickListener(v -> dismissWith(() -> FeatureSettingsDialog.corePlayback(mDetailActivity, mPlayer)));
         com.kukuqi.tvbox.osc.player.SleepTimer.bind(mBinding.sleepTimer);
         initListener();
     }

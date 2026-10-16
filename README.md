@@ -43,6 +43,12 @@ Fork → 开发 → 向 main 提交 PR → Review 合并。发布新版本只需
 
 已公开的版本不会重复发布。无需手动打 Tag；发布失败时可在 GitHub Actions 中重新运行对应流程。版本更新说明统一记录在本 README 的“更新记录”中。
 
+### 苹果 CMS 采集接口
+
+MacCMS V10 JSON 配置模板见 [examples/maccms-v10.json](examples/maccms-v10.json)，将 `cms.example` 替换为自己的域名，再通过现有订阅入口导入配置文件。JSON 采集使用 `type: 1`，XML 采集使用 `type: 0` 并填写服务器实际提供的 XML 接口地址。订阅入口需要含 `sites` 的配置文件。
+
+支持分类分页、搜索、详情、多线路和分集播放；直链直接交给播放器，网页地址可嗅探或配置外部解析器。地区、年份等筛选由服务端能力决定。客户端不负责 CMS 后台采集入库与定时同步。
+
 ## 推荐视频源仓库
 
 https://github.com/gaotianliuyun/gao
@@ -63,6 +69,8 @@ https://github.com/UndCover/PyramidStore/
 - R18: [R18](https://raw.githubusercontent.com/kukuqi666/TVboxOSC/main/website/tvbox/R18.json)
 
 ## 𝟭. 更新记录
+
+>* **2026/10/16 TVboxOSC v3.0.5：** 修复模块下载地址残留，运行时改为按需安装；接入 Node.js 来源与 BD-J Java 运行时，完整蓝光菜单仍需适配播放器；补齐 XML/JSON 采集分页、搜索与多线路数据转换，修复短地址解析及鉴权头传递，提供苹果 CMS 配置模板；精简重复设置并缩减主包体积。
 
 >* **2026/10/15 TVboxOSC v3.0.4：** 界面优化与问题修复。
 

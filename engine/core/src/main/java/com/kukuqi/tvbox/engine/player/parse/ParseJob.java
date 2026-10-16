@@ -9,16 +9,10 @@ import com.kukuqi.tvbox.engine.api.loader.BaseLoader;
 import com.kukuqi.tvbox.engine.bean.Parse;
 import com.kukuqi.tvbox.engine.bean.Result;
 import com.kukuqi.tvbox.engine.impl.ParseCallback;
-import com.kukuqi.tvbox.engine.server.Server;
 import com.kukuqi.tvbox.engine.utils.Task;
 import com.kukuqi.tvbox.engine.utils.UrlUtil;
 import com.kukuqi.tvbox.engine.utils.WebViewUtil;
 import com.github.catvod.net.OkHttp;
-import com.github.catvod.utils.Json;
-import com.github.catvod.utils.Util;
-import com.google.common.net.HttpHeaders;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -62,8 +56,7 @@ public class ParseJob implements ParseCallback {
 
     /** Host adapter: keep the selected line while using the upstream parsing pipeline. */
     public ParseJob start(Result result, Parse selected) {
-        parse = selected;
-        parse.setHeader(result.getHeader());
+        parse = withHeaders(selected, result.getHeader());
         parse.setClick(getClick(result));
         execute(result);
         return this;
@@ -74,7 +67,7 @@ public class ParseJob implements ParseCallback {
         if (result.getPlayUrl().startsWith("json:")) parse = Parse.get(1, result.getPlayUrl().substring(5));
         if (result.getPlayUrl().startsWith("parse:")) parse = VodConfig.get().getParse(result.getPlayUrl().substring(6));
         if (parse == null || parse.isEmpty()) parse = Parse.get(0, result.getPlayUrl());
-        parse.setHeader(result.getHeader());
+        parse = withHeaders(parse, result.getHeader());
         parse.setClick(getClick(result));
     }
 
@@ -107,7 +100,7 @@ public class ParseJob implements ParseCallback {
                 startWeb(key, parse, webUrl);
                 break;
             case 1:
-                jsonParse(parse, webUrl, true);
+                jsonParse(parse, webUrl);
                 break;
             case 2:
                 jsonExtend(webUrl);
@@ -116,19 +109,31 @@ public class ParseJob implements ParseCallback {
                 jsonMix(webUrl, flag);
                 break;
             case 4:
-                superParse(webUrl, flag);
+                superParse(key, webUrl, flag);
                 break;
+            default:
+                onParseError();
         }
     }
 
-    private void jsonParse(Parse item, String webUrl, boolean fatal) throws Exception {
+    private void jsonParse(Parse item, String webUrl) throws Exception {
         try (Response res = OkHttp.newCall(item.getUrl() + webUrl, item.getHeader()).execute()) {
-            JsonObject object = Json.parse(res.body().string()).getAsJsonObject();
-            String url = Json.safeString(object, "url");
-            JsonObject data = object.getAsJsonObject("data");
-            if (url.isEmpty()) url = Json.safeString(data, "url");
-            checkResult(getHeader(object), url, item.getName(), fatal);
+            if (!res.isSuccessful() || res.body() == null) throw new java.io.IOException("解析接口请求失败：HTTP " + res.code());
+            JsonParseResult result = JsonParseResult.read(res.body().string(), item.getHeader(), res.request().url().toString());
+            onParseSuccess(result.headers, UrlUtil.convert(result.url), item.getName());
         }
+    }
+
+    private Parse withHeaders(Parse selected, Map<String, String> inherited) {
+        Parse copy = Parse.objectFrom(App.gson().toJsonTree(selected));
+        Map<String, String> headers = new LinkedHashMap<>(inherited);
+        // Parser-specific headers override inherited source headers, case-insensitively.
+        selected.getHeader().forEach((key, value) -> {
+            headers.keySet().removeIf(existing -> existing.equalsIgnoreCase(key));
+            headers.put(key, value);
+        });
+        copy.getExt().setHeader(headers);
+        return copy;
     }
 
     private void jsonExtend(String webUrl) throws Throwable {
@@ -143,20 +148,28 @@ public class ParseJob implements ParseCallback {
         checkResult(Result.fromObject(BaseLoader.get().jsonExtMix(flag, parse.getUrl(), parse.getName(), jxs, webUrl)));
     }
 
-    private void superParse(String webUrl, String flag) throws Exception {
+    private void superParse(String key, String webUrl, String flag) throws Exception {
         List<Parse> json = VodConfig.get().getParses(1, flag);
         List<Parse> webs = VodConfig.get().getParses(0, flag);
-        int count = json.size() + (webs.isEmpty() ? 0 : 1);
+        int count = json.size() + webs.size();
         CountDownLatch latch = new CountDownLatch(count);
-        for (Parse item : json) infinite.execute(() -> jsonParse(latch, item, webUrl));
-        if (!webs.isEmpty()) startWeb(webs, webUrl);
+        for (Parse item : json) infinite.execute(() -> jsonParse(latch, withHeaders(item, parse.getHeader()), webUrl));
+        for (Parse item : webs) {
+            Parse line = withHeaders(item, parse.getHeader());
+            startWeb(key, line.getName(), line.getHeader(), line.getUrl() + webUrl, parse.getClick(), new ParseCallback() {
+                @Override public void onParseSuccess(Map<String, String> headers, String url, String from) {
+                    ParseJob.this.onParseSuccess(headers, url, from);
+                }
+                @Override public void onParseError() { latch.countDown(); }
+            });
+        }
         latch.await();
         onParseError();
     }
 
     private void jsonParse(CountDownLatch latch, Parse item, String webUrl) {
         try {
-            jsonParse(item, webUrl, false);
+            jsonParse(item, webUrl);
         } catch (Exception e) {
             e.printStackTrace();
         } finally {
@@ -164,22 +177,11 @@ public class ParseJob implements ParseCallback {
         }
     }
 
-    private void checkResult(Map<String, String> headers, String url, String from, boolean fatal) {
-        if (url.length() > 40) onParseSuccess(headers, url, from);
-        else if (fatal) onParseError();
-    }
-
     private void checkResult(Result result) {
         result.setHeader(parse.getHeader());
         if (result.getUrl().isEmpty()) onParseError();
         else if (result.needParse()) startWeb(result.getHeader(), UrlUtil.convert(result.getUrl().v()));
         else onParseSuccess(result.getHeader(), result.getUrl().v(), result.getJxFrom());
-    }
-
-    private void startWeb(List<Parse> items, String webUrl) {
-        StringBuilder sb = new StringBuilder();
-        for (Parse item : items) sb.append(item.getUrl()).append(";");
-        startWeb(new HashMap<>(), Server.get().getAddress("/parse?jxs=" + Util.substring(sb.toString()) + "&url=" + webUrl));
     }
 
     private void startWeb(String key, Parse item, String webUrl) {
@@ -191,21 +193,22 @@ public class ParseJob implements ParseCallback {
     }
 
     private void startWeb(String key, String from, Map<String, String> headers, String url, String click) {
-        if (!WebViewUtil.support()) {
-            onParseError();
-        } else {
-            App.post(() -> webViews.add(WebParserView.create(App.get()).start(key, from, headers, url, click, this, !url.contains("player/?url="))));
-        }
+        startWeb(key, from, headers, url, click, this);
     }
 
-    private Map<String, String> getHeader(JsonObject object) {
-        Map<String, String> headers = new HashMap<>();
-        if (object.has("header")) {
-            try { headers.putAll(Json.toMap(object.get("header").isJsonPrimitive() ? object.get("header").getAsString() : object.get("header").toString())); }
-            catch (Exception ignored) { }
+    private void startWeb(String key, String from, Map<String, String> headers, String url, String click, ParseCallback receiver) {
+        if (!WebViewUtil.support()) {
+            receiver.onParseError();
+        } else {
+            App.post(() -> {
+                if (done.get()) return;
+                try {
+                    webViews.add(WebParserView.create(App.get()).start(key, from, headers, url, click, receiver, !url.contains("player/?url=")));
+                } catch (RuntimeException failure) {
+                    receiver.onParseError();
+                }
+            });
         }
-        for (Map.Entry<String, JsonElement> entry : object.entrySet()) if (!entry.getValue().isJsonNull() && (entry.getKey().equalsIgnoreCase(HttpHeaders.USER_AGENT) || entry.getKey().equalsIgnoreCase(HttpHeaders.REFERER) || entry.getKey().equalsIgnoreCase(HttpHeaders.COOKIE) || entry.getKey().equalsIgnoreCase("ua"))) headers.put(UrlUtil.fixHeader(entry.getKey()), entry.getValue().getAsString());
-        return headers.isEmpty() ? parse.getHeader() : headers;
     }
 
     @Override

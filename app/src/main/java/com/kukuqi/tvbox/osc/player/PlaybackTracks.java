@@ -4,8 +4,6 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.view.View;
 import android.widget.Toast;
-import com.google.android.exoplayer2.Player;
-import com.google.android.exoplayer2.text.Cue;
 import com.kukuqi.tvbox.osc.subtitle.model.Subtitle;
 import java.util.List;
 import xyz.doikki.videoplayer.player.AbstractPlayer;
@@ -15,7 +13,6 @@ public final class PlaybackTracks {
     private static TrackInfo tracks(AbstractPlayer player) {
         if (player instanceof CorePlayer) return ((CorePlayer) player).getTrackInfo();
         if (player instanceof IjkMediaPlayer) return ((IjkMediaPlayer) player).getTrackInfo();
-        if (player instanceof EXOmPlayer) return ((EXOmPlayer) player).getTrackInfo();
         return null;
     }
     public static void select(Activity activity, MyVideoView view, com.kukuqi.tvbox.osc.subtitle.widget.SimpleSubtitleView subtitles, boolean audio) {
@@ -35,7 +32,6 @@ public final class PlaybackTracks {
                     if (!audio) { subtitles.destroy(); subtitles.clearSubtitleCache(); subtitles.isInternal = true; subtitles.setVisibility(View.VISIBLE); }
                     if (player instanceof CorePlayer) ((CorePlayer) player).selectTrack(item);
                     else if (player instanceof IjkMediaPlayer) ((IjkMediaPlayer) player).setTrack(item.trackId);
-                    else if (player instanceof EXOmPlayer) ((EXOmPlayer) player).selectExoTrack(item);
                     view.postDelayed(() -> {
                         if (view.getMediaPlayer() != player || activity.isDestroyed()) return;
                         player.seekTo(position); if (playing) player.start();
@@ -59,13 +55,6 @@ public final class PlaybackTracks {
             Subtitle subtitle = new Subtitle(); subtitle.content = text == null ? "" : text.getText();
             subtitles.onSubtitleChanged(subtitle);
         });
-        else if (player instanceof EXOmPlayer) ((EXOmPlayer) player).setOnTimedTextListener(new Player.Listener() {
-            @Override public void onCues(List<Cue> cues) {
-                if (!subtitles.isInternal) return;
-                Subtitle subtitle = new Subtitle();
-                subtitle.content = cues.isEmpty() || cues.get(0).text == null ? "" : cues.get(0).text.toString();
-                subtitles.onSubtitleChanged(subtitle);
-            }
-        });
+
     }
 }

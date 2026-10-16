@@ -1,0 +1,37 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'com.kukuqi.tvbox.runtime.thunder'
+    compileSdk 37
+    defaultConfig {
+        applicationId 'com.kukuqi.tvbox.runtime.thunder'
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName '1.0.0'
+        ndk { abiFilters 'arm64-v8a' }
+    }
+    compileOptions {
+        coreLibraryDesugaringEnabled true
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+    packaging { jniLibs { useLegacyPackaging true } }
+    buildTypes { release { minifyEnabled false } }
+}
+// Release modules must use the same certificate as the host APK.
+def signingStore = rootProject.file('TVBoxOSC.jks')
+if (signingStore.exists()) {
+    android.signingConfigs.create('host') {
+        storeFile signingStore
+        storePassword System.getenv('TVBOX_STORE_PASSWORD') ?: 'TVBoxOSC'
+        keyAlias System.getenv('TVBOX_KEY_ALIAS') ?: 'TVBoxOSC'
+        keyPassword System.getenv('TVBOX_KEY_PASSWORD') ?: 'TVBoxOSC'
+    }
+    android.buildTypes.configureEach { signingConfig android.signingConfigs.host }
+}
+dependencies {
+    implementation files('../../engine/core/libs/thunder-release.aar')
+    compileOnly project(':source-runtime')
+    compileOnly project(':tvbox-engine')
+    coreLibraryDesugaring libs.desugar
+}

@@ -10,6 +10,17 @@ import xyz.doikki.videoplayer.player.AbstractPlayer;
 import xyz.doikki.videoplayer.player.VideoView;
 
 public class MyVideoView extends VideoView {
+    private com.kukuqi.tvbox.engine.bean.Result qualities;
+    private java.util.function.IntConsumer selectQuality;
+
+    public void setQualityOptions(com.kukuqi.tvbox.engine.bean.Result result, java.util.function.IntConsumer select) {
+        qualities = result;
+        selectQuality = select;
+    }
+    public com.kukuqi.tvbox.engine.bean.Result getQualityOptions() { return qualities; }
+    public void selectQuality(int position) {
+        if (qualities != null && selectQuality != null && position >= 0 && position < qualities.getUrl().getValues().size()) selectQuality.accept(position);
+    }
     private boolean sleepPaused;
     private boolean refreshDanmaku, hasDanmakuContext;
     private com.google.gson.JsonElement danmakuSource;

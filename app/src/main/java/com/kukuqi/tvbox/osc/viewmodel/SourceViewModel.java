@@ -81,7 +81,7 @@ public class SourceViewModel extends ViewModel {
             try {
                 com.kukuqi.tvbox.engine.bean.Result result = com.kukuqi.tvbox.engine.api.SiteApi.homeContent(com.kukuqi.tvbox.osc.core.CoreBridge.site(sourceKey));
                 AbsSortXml categories = sortJson(sortResult, result.toString());
-                if (categories != null && Hawk.get(HawkConfig.HOME_REC, 0) == 1) {
+                if (categories != null && Hawk.get(HawkConfig.HOME_REC, 1) == 1) {
                     AbsXml videos = json(null, result.toString(), sourceKey);
                     if (videos != null && videos.movie != null) categories.videoList = videos.movie.videoList;
                 }
@@ -172,6 +172,8 @@ public class SourceViewModel extends ViewModel {
             try {
                 com.kukuqi.tvbox.engine.bean.Result value = com.kukuqi.tvbox.osc.core.CoreBridge.player(sourceKey,playFlag,url);
                 JSONObject result = new JSONObject(value.toString());
+                // Keep the complete core response, including named quality URLs and DRM/subtitles.
+                result.put("coreResult", new JSONObject(value.toString()));
                 result.put("url", value.getUrl().v());
                 result.put("key", url); result.put("siteKey", sourceKey);
                 result.put("proKey",progressKey); result.put("subtKey",subtitleKey);
@@ -266,24 +268,14 @@ public class SourceViewModel extends ViewModel {
                             str = new String[]{urlInfo.urls};
                         }
                         List<Movie.Video.UrlBean.UrlInfo.InfoBean> infoBeanList = new ArrayList<>();
-//                        for (String s : str) {
-//                            if (s.contains("$")) {
-//                                String[] ss = s.split("\\$");
-//                                if (ss.length >= 2) {
-//                                    infoBeanList.add(new Movie.Video.UrlBean.UrlInfo.InfoBean(ss[0], ss[1]));
-//                                }
-//                                //infoBeanList.add(new Movie.Video.UrlBean.UrlInfo.InfoBean(s.substring(0, s.indexOf("$")), s.substring(s.indexOf("$") + 1)));
-//                            }
-//                        }
                         for (String s : str) {
-                            String[] ss = s.split("\\$");
-                            if (ss.length > 0) {
-                                if (ss.length >= 2) {
-                                    infoBeanList.add(new Movie.Video.UrlBean.UrlInfo.InfoBean(ss[0], ss[1]));
-                                } else {
-                                    infoBeanList.add(new Movie.Video.UrlBean.UrlInfo.InfoBean((infoBeanList.size() + 1) + "", ss[0]));
-                                }
-                            }
+                            String entry = s.trim();
+                            if (entry.isEmpty()) continue;
+                            String[] ss = entry.split("\\$", 2);
+                            String number = String.valueOf(infoBeanList.size() + 1);
+                            String name = ss.length == 2 && !ss[0].trim().isEmpty() ? ss[0].trim() : number;
+                            String url = ss.length == 2 ? ss[1].trim() : entry;
+                            if (!url.isEmpty()) infoBeanList.add(new Movie.Video.UrlBean.UrlInfo.InfoBean(name, url));
                         }
                         urlInfo.beanList = infoBeanList;
                     }

@@ -548,6 +548,10 @@ public class LiveActivity extends BaseActivity {
         startCoreChannel(data);
     }
 
+    public void showCorePlaybackOptions() {
+        com.kukuqi.tvbox.osc.ui.dialog.FeatureSettingsDialog.corePlayback(this, mVideoView);
+    }
+
     private void startCoreChannel(com.kukuqi.tvbox.engine.bean.EpgData programme) {
         final int generation = ++corePlayGeneration;
         final LiveChannelItem selected = currentLiveChannelItem;

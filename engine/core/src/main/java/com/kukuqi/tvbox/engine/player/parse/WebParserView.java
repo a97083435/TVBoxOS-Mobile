@@ -32,6 +32,7 @@ import com.google.common.net.HttpHeaders;
 
 import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -57,6 +58,7 @@ public class WebParserView extends WebView implements DialogInterface.OnDismissL
     private String from;
     private String key;
     private String url;
+    private Map<String, String> configuredHeaders;
 
     public static WebParserView create(@NonNull Context context) {
         return new WebParserView(context);
@@ -102,6 +104,7 @@ public class WebParserView extends WebView implements DialogInterface.OnDismissL
     }
 
     private void start(Map<String, String> headers) {
+        configuredHeaders = new HashMap<>(headers);
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true);
         checkHeader(url, headers);
         loadUrl(url, headers);
@@ -211,7 +214,19 @@ public class WebParserView extends WebView implements DialogInterface.OnDismissL
 
     private void onParseSuccess(Map<String, String> headers, String url) {
         ParseCallback cb = callbackRef.getAndSet(null);
-        if (cb != null) cb.onParseSuccess(headers, url, from);
+        if (cb != null) {
+            Map<String, String> mediaHeaders = new HashMap<>(configuredHeaders);
+            headers.forEach((key, value) -> {
+                mediaHeaders.keySet().removeIf(existing -> existing.equalsIgnoreCase(key));
+                mediaHeaders.put(key, value);
+            });
+            String cookie = CookieManager.getInstance().getCookie(url);
+            if (!TextUtils.isEmpty(cookie)) {
+                mediaHeaders.keySet().removeIf(existing -> existing.equalsIgnoreCase(HttpHeaders.COOKIE));
+                mediaHeaders.put(HttpHeaders.COOKIE, cookie);
+            }
+            cb.onParseSuccess(mediaHeaders, url, from);
+        }
         post(() -> stop(false));
     }
 

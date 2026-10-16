@@ -20,7 +20,7 @@ android {
 }
 
 dependencies {
-    implementation project(':source-runtime')
+    compileOnly project(':source-runtime')
     implementation libs.quickjs.android
     implementation libs.quickjs.java
     coreLibraryDesugaring libs.desugar

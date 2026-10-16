@@ -23,7 +23,7 @@ public class HawkConfig {
     public static final String PLAY_TIME_STEP = "play_time_step"; //0 texture 2
     public static final String DOH_URL = "doh_url";
     /**
-     * 0 豆瓣热播 1 数据源推荐 2 关闭主页
+     * 1 站点推荐 2 关闭主页（旧值 0 启动时迁移为 1）
      */
     public static final String HOME_REC = "home_rec";
     public static final String HISTORY_NUM = "history_num";

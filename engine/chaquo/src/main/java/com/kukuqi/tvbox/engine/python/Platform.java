@@ -41,8 +41,8 @@ public class Platform extends Python.Platform {
     private final Context context;
     private String ABI;
 
-    public Platform() {
-        this.context = Init.context();
+    public Platform(Context context) {
+        this.context = context;
         this.sp = context.getSharedPreferences(Common.ASSET_DIR, Context.MODE_PRIVATE);
         this.am = context.getAssets();
         try {
@@ -67,9 +67,6 @@ public class Platform extends Python.Platform {
         AndroidPlatform.ABI = ABI;
     }
 
-    public static Platform create() {
-        return new Platform();
-    }
 
     @Override
     public @NotNull String getPath() {

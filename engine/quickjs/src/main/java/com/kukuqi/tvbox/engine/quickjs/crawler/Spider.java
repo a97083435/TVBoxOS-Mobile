@@ -9,7 +9,7 @@ import com.kukuqi.tvbox.engine.quickjs.method.Local;
 import com.kukuqi.tvbox.engine.quickjs.utils.Async;
 import com.kukuqi.tvbox.engine.quickjs.utils.JSUtil;
 import com.kukuqi.tvbox.engine.quickjs.utils.Module;
-import com.github.catvod.utils.Asset;
+import com.kukuqi.tvbox.engine.quickjs.utils.RuntimeAssets;
 import com.github.catvod.utils.Json;
 import com.github.catvod.utils.UriUtil;
 import com.github.catvod.utils.Util;
@@ -161,7 +161,7 @@ public class Spider extends com.github.catvod.crawler.Spider {
     private void createCtx() {
         ctx = QuickJSContext.create();
         ctx.setConsole(new Console());
-        ctx.evaluate(Asset.read("js/lib/http.js"));
+        ctx.evaluate(RuntimeAssets.read("js/lib/http.js"));
         ctx.getGlobalObject().setProperty("local", Local.class);
         ctx.setModuleLoader(new QuickJSContext.BytecodeModuleLoader() {
             @Override
@@ -191,7 +191,7 @@ public class Spider extends com.github.catvod.crawler.Spider {
         String content = Module.get().fetch(api);
         cat = content.contains("__jsEvalReturn");
         ctx.evaluateModule(content.replace(spider, global), api);
-        ctx.evaluateModule(String.format(Asset.read("js/lib/spider.js"), api));
+        ctx.evaluateModule(String.format(RuntimeAssets.read("js/lib/spider.js"), api));
         jsObject = (JSObject) ctx.getProperty(ctx.getGlobalObject(), spider);
     }
 

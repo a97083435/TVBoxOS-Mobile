@@ -35,7 +35,6 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.lifecycle.Observer;
 import androidx.lifecycle.ViewModelProvider;
-import androidx.recyclerview.widget.DiffUtil;
 
 import com.blankj.utilcode.util.ColorUtils;
 import com.blankj.utilcode.util.LogUtils;
@@ -54,16 +53,11 @@ import com.kukuqi.tvbox.osc.bean.Subtitle;
 import com.kukuqi.tvbox.osc.bean.VodInfo;
 import com.kukuqi.tvbox.osc.cache.CacheManager;
 import com.kukuqi.tvbox.osc.event.RefreshEvent;
-import com.kukuqi.tvbox.osc.player.EXOmPlayer;
-import com.kukuqi.tvbox.osc.player.IjkMediaPlayer;
 import com.kukuqi.tvbox.osc.player.MyVideoView;
-import com.kukuqi.tvbox.osc.player.TrackInfo;
-import com.kukuqi.tvbox.osc.player.TrackInfoBean;
 import com.kukuqi.tvbox.osc.player.controller.VodController;
 import com.kukuqi.tvbox.osc.server.RemoteServer;
 import com.kukuqi.tvbox.osc.ui.activity.DetailActivity;
 import com.kukuqi.tvbox.osc.ui.adapter.ParseAdapter;
-import com.kukuqi.tvbox.osc.ui.adapter.SelectDialogAdapter;
 import com.kukuqi.tvbox.osc.ui.dialog.PlayingControlDialog;
 import com.kukuqi.tvbox.osc.ui.dialog.PlayingControlRightDialog;
 import com.kukuqi.tvbox.osc.ui.dialog.SearchSubtitleDialog;
@@ -79,8 +73,6 @@ import com.kukuqi.tvbox.osc.util.VideoParseRuler;
 
 import com.kukuqi.tvbox.osc.util.thunder.Thunder;
 import com.kukuqi.tvbox.osc.viewmodel.SourceViewModel;
-import com.google.android.exoplayer2.Player;
-import com.google.android.exoplayer2.text.Cue;
 import com.gyf.immersionbar.BarHide;
 import com.gyf.immersionbar.ImmersionBar;
 import com.lxj.xpopup.XPopup;
@@ -97,7 +89,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
-import org.jetbrains.annotations.NotNull;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -114,9 +105,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import me.jessyan.autosize.AutoSize;
-import tv.danmaku.ijk.media.player.IMediaPlayer;
-import tv.danmaku.ijk.media.player.IjkTimedText;
-import xyz.doikki.videoplayer.player.AbstractPlayer;
 import xyz.doikki.videoplayer.player.ProgressManager;
 
 public class PlayFragment extends BaseLazyFragment {
@@ -168,6 +156,7 @@ public class PlayFragment extends BaseLazyFragment {
     }
 
     public long getSavedProgress(String url) {
+        if (qualityResumePosition >= 0) return qualityResumePosition;
         int st = 0;
         try {
             st = mVodPlayerCfg.getInt("st");
@@ -291,6 +280,14 @@ public class PlayFragment extends BaseLazyFragment {
             @Override
             public void prepared() {
                 initSubtitleView();
+                if (qualityResumePosition >= 0) {
+                    boolean playing = qualityResumePlaying;
+                    qualityResumePosition = -1;
+                    if (mVideoView.getMediaPlayer() instanceof com.kukuqi.tvbox.osc.player.CorePlayer) {
+                        com.kukuqi.tvbox.osc.player.CorePlayer core = (com.kukuqi.tvbox.osc.player.CorePlayer) mVideoView.getMediaPlayer();
+                        if (!playing) mVideoView.post(() -> { if (mVideoView != null && mVideoView.getMediaPlayer() == core) mVideoView.pause(); });
+                    }
+                }
             }
 
             @Override
@@ -484,156 +481,11 @@ public class PlayFragment extends BaseLazyFragment {
     }
 
     void selectMyAudioTrack() {
-        if (mVideoView.getMediaPlayer() instanceof com.kukuqi.tvbox.osc.player.CorePlayer) {
-            com.kukuqi.tvbox.osc.player.PlaybackTracks.select(requireActivity(), mVideoView, mController.mSubtitleView, true);
-            return;
-        }
-        AbstractPlayer mediaPlayer = mVideoView.getMediaPlayer();
-
-        TrackInfo trackInfo = null;
-        if (mediaPlayer instanceof IjkMediaPlayer) {
-            trackInfo = ((IjkMediaPlayer) mediaPlayer).getTrackInfo();
-        }
-        if (mediaPlayer instanceof EXOmPlayer) {
-            trackInfo = ((EXOmPlayer) mediaPlayer).getTrackInfo();
-        }
-
-        if (trackInfo == null) {
-            Toast.makeText(mContext, "没有音轨", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        List<TrackInfoBean> bean = trackInfo.getAudio();
-        if (bean.size() < 1) return;
-        SelectDialog<TrackInfoBean> dialog = new SelectDialog<>(getActivity());
-        dialog.setTip("切换音轨");
-        dialog.setAdapter(new SelectDialogAdapter.SelectDialogInterface<TrackInfoBean>() {
-            @Override
-            public void click(TrackInfoBean value, int pos) {
-                try {
-                    for (TrackInfoBean audio : bean) {
-                        audio.selected = audio.trackId == value.trackId;
-                    }
-                    mediaPlayer.pause();
-                    long progress = mediaPlayer.getCurrentPosition();//保存当前进度，ijk 切换轨道 会有快进几秒
-                    if (mediaPlayer instanceof IjkMediaPlayer) {
-                        ((IjkMediaPlayer) mediaPlayer).setTrack(value.trackId);
-                    }
-                    if (mediaPlayer instanceof EXOmPlayer) {
-                        ((EXOmPlayer) mediaPlayer).selectExoTrack(value);
-                    }
-                    new Handler().postDelayed(new Runnable() {
-                        @Override
-                        public void run() {
-                            mediaPlayer.seekTo(progress);
-                            mediaPlayer.start();
-                        }
-                    }, 800);
-                    dialog.dismiss();
-                } catch (Exception e) {
-                    LOG.e("切换音轨出错");
-                }
-            }
-
-            @Override
-            public String getDisplay(TrackInfoBean val) {
-                String name = val.name.replace("AUDIO,", "");
-                name = name.replace("N/A,", "");
-                name = name.replace(" ", "");
-                return name + (TextUtils.isEmpty(val.language) ? "" : " " + val.language);
-            }
-        }, new DiffUtil.ItemCallback<TrackInfoBean>() {
-            @Override
-            public boolean areItemsTheSame(@NonNull @NotNull TrackInfoBean oldItem, @NonNull @NotNull TrackInfoBean newItem) {
-                return oldItem.trackId == newItem.trackId;
-            }
-
-            @Override
-            public boolean areContentsTheSame(@NonNull @NotNull TrackInfoBean oldItem, @NonNull @NotNull TrackInfoBean newItem) {
-                return oldItem.trackId == newItem.trackId;
-            }
-        }, bean, trackInfo.getAudioSelected(false));
-        dialog.show();
+        com.kukuqi.tvbox.osc.player.PlaybackTracks.select(requireActivity(), mVideoView, mController.mSubtitleView, true);
     }
 
     void selectMyInternalSubtitle() {
-        if (mVideoView.getMediaPlayer() instanceof com.kukuqi.tvbox.osc.player.CorePlayer) {
-            com.kukuqi.tvbox.osc.player.PlaybackTracks.select(requireActivity(), mVideoView, mController.mSubtitleView, false);
-            return;
-        }
-        AbstractPlayer mediaPlayer = mVideoView.getMediaPlayer();
-        TrackInfo trackInfo = null;
-        if (mediaPlayer instanceof EXOmPlayer) {
-            trackInfo = ((EXOmPlayer)mediaPlayer).getTrackInfo();
-        }
-        if (mediaPlayer instanceof IjkMediaPlayer) {
-            trackInfo = ((IjkMediaPlayer)mediaPlayer).getTrackInfo();
-        }
-
-        if (trackInfo == null) {
-            Toast.makeText(mContext, "没有内置字幕", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        List<TrackInfoBean> bean = trackInfo.getSubtitle();
-        if (bean.size() < 1) return;
-        SelectDialog<TrackInfoBean> dialog = new SelectDialog<>(mActivity);
-        dialog.setTip("切换内置字幕");
-        dialog.setAdapter(new SelectDialogAdapter.SelectDialogInterface<TrackInfoBean>() {
-            @Override
-            public void click(TrackInfoBean value, int pos) {
-                mController.mSubtitleView.setVisibility(View.VISIBLE);
-                try {
-                    for (TrackInfoBean subtitle : bean) {
-                        subtitle.selected =subtitle.trackGroupId == value.trackGroupId && subtitle.trackId == value.trackId;
-                    }
-                    mediaPlayer.pause();
-                    long progress = mediaPlayer.getCurrentPosition();//保存当前进度，ijk 切换轨道 会有快进几秒
-                    mController.mSubtitleView.destroy();
-                    mController.mSubtitleView.clearSubtitleCache();
-                    mController.mSubtitleView.isInternal = true;
-
-                    if (mediaPlayer instanceof IjkMediaPlayer) {
-                        ((IjkMediaPlayer)mediaPlayer).setTrack(value.trackId);
-                        new Handler().postDelayed(new Runnable() {
-                            @Override
-                            public void run() {
-                                mediaPlayer.seekTo(progress);
-                                mediaPlayer.start();
-                            }
-                        }, 800);
-                    }
-                    if (mediaPlayer instanceof EXOmPlayer) {
-                        ((EXOmPlayer)mediaPlayer).selectExoTrack(value);
-                        new Handler().postDelayed(new Runnable() {
-                            @Override
-                            public void run() {
-                                mediaPlayer.seekTo(progress);
-                                mediaPlayer.start();
-                                mController.startProgress();
-                            }
-                        }, 800);
-                    }
-                    dialog.dismiss();
-                } catch (Exception e) {
-                    LOG.e("切换内置字幕出错");
-                }
-            }
-
-            @Override
-            public String getDisplay(TrackInfoBean val) {
-                return val.name + (TextUtils.isEmpty(val.language)? "": " " + val.language);
-            }
-        }, new DiffUtil.ItemCallback<TrackInfoBean>() {
-            @Override
-            public boolean areItemsTheSame(@NonNull @NotNull TrackInfoBean oldItem, @NonNull @NotNull TrackInfoBean newItem) {
-                return oldItem.trackId == newItem.trackId;
-            }
-
-            @Override
-            public boolean areContentsTheSame(@NonNull @NotNull TrackInfoBean oldItem, @NonNull @NotNull TrackInfoBean newItem) {
-                return oldItem.trackId == newItem.trackId;
-            }
-        }, bean, trackInfo.getSubtitleSelected(false));
-        dialog.show();
+        com.kukuqi.tvbox.osc.player.PlaybackTracks.select(requireActivity(), mVideoView, mController.mSubtitleView, false);
     }
 
     void setTip(String msg, boolean loading, boolean err) {
@@ -916,94 +768,11 @@ public class PlayFragment extends BaseLazyFragment {
     }
 
     private void initSubtitleView() {
-        if (mVideoView.getMediaPlayer() instanceof com.kukuqi.tvbox.osc.player.CorePlayer) {
-            com.kukuqi.tvbox.osc.player.PlaybackTracks.bind(mVideoView, mController.mSubtitleView);
-            mController.mSubtitleView.setPlaySubtitleCacheKey(subtitleCacheKey);
-            String cached = (String) CacheManager.getCache(MD5.string2MD5(subtitleCacheKey));
-            if (cached != null && !cached.isEmpty()) mController.mSubtitleView.setSubtitlePath(cached);
-            else if (playSubtitle != null && !playSubtitle.isEmpty()) mController.mSubtitleView.setSubtitlePath(playSubtitle);
-            return;
-        }
-        TrackInfo trackInfo = null;
-        if (mVideoView.getMediaPlayer() instanceof IjkMediaPlayer) {
-            trackInfo = ((IjkMediaPlayer) (mVideoView.getMediaPlayer())).getTrackInfo();
-            if (trackInfo != null && trackInfo.getSubtitle().size() > 0) {//如有则设置内置字幕
-                mController.mSubtitleView.hasInternal = true;
-            }
-            ((IjkMediaPlayer) (mVideoView.getMediaPlayer())).setOnTimedTextListener(new IMediaPlayer.OnTimedTextListener() {
-                @Override
-                public void onTimedText(IMediaPlayer mp, IjkTimedText text) {
-                    if (mController.mSubtitleView.isInternal) {
-                        com.kukuqi.tvbox.osc.subtitle.model.Subtitle subtitle = new com.kukuqi.tvbox.osc.subtitle.model.Subtitle();
-                        subtitle.content = text.getText();
-                        mController.mSubtitleView.onSubtitleChanged(subtitle);
-                    }
-                }
-            });
-        }
-
-        if (mVideoView.getMediaPlayer() instanceof EXOmPlayer) {
-            trackInfo = ((EXOmPlayer) (mVideoView.getMediaPlayer())).getTrackInfo();
-            if (trackInfo != null && trackInfo.getSubtitle().size() > 0) {
-                mController.mSubtitleView.hasInternal = true;
-            }
-            ((EXOmPlayer) (mVideoView.getMediaPlayer())).setOnTimedTextListener(new Player.Listener() {
-                @Override
-                public void onCues(@NonNull List<Cue> cues) {
-                    if (cues.size() > 0) {
-                        CharSequence ss = cues.get(0).text;
-                        if (ss != null && mController.mSubtitleView.isInternal) {
-                            com.kukuqi.tvbox.osc.subtitle.model.Subtitle subtitle = new com.kukuqi.tvbox.osc.subtitle.model.Subtitle();
-                            subtitle.content = ss.toString();
-                            mController.mSubtitleView.onSubtitleChanged(subtitle);
-                        }
-                    } else{
-                        mController.mSubtitleView.onSubtitleChanged(null);
-                    }
-                }
-            });
-        }
-
-        mController.mSubtitleView.bindToMediaPlayer(mVideoView.getMediaPlayer());
+        com.kukuqi.tvbox.osc.player.PlaybackTracks.bind(mVideoView, mController.mSubtitleView);
         mController.mSubtitleView.setPlaySubtitleCacheKey(subtitleCacheKey);
-        String subtitlePathCache = (String) CacheManager.getCache(MD5.string2MD5(subtitleCacheKey));
-        if (subtitlePathCache != null && !subtitlePathCache.isEmpty()) {
-            mController.mSubtitleView.setSubtitlePath(subtitlePathCache);
-        } else {
-            if (playSubtitle != null && playSubtitle.length() > 0) {
-                mController.mSubtitleView.setSubtitlePath(playSubtitle);
-            } else {
-                if (mController.mSubtitleView.hasInternal) {//有则使用内置字幕
-                    mController.mSubtitleView.isInternal = true;
-                    if (trackInfo != null && !trackInfo.getSubtitle().isEmpty()) {
-                        List<TrackInfoBean> subtitleTrackList = trackInfo.getSubtitle();
-                        int selectedIndex = trackInfo.getSubtitleSelected(true);
-                        boolean hasCh =false;
-                        for(TrackInfoBean subtitleTrackInfoBean : subtitleTrackList) {
-                            String lowerLang = subtitleTrackInfoBean.language.toLowerCase();
-                            if (lowerLang.contains("zh") || lowerLang.contains("ch")) {
-                                hasCh=true;
-                                if (selectedIndex != subtitleTrackInfoBean.trackId) {
-                                    if (mVideoView.getMediaPlayer() instanceof IjkMediaPlayer){
-                                        ((IjkMediaPlayer)(mVideoView.getMediaPlayer())).setTrack(subtitleTrackInfoBean.trackId);
-                                    }else if (mVideoView.getMediaPlayer() instanceof EXOmPlayer){
-                                        ((EXOmPlayer)(mVideoView.getMediaPlayer())).selectExoTrack(subtitleTrackInfoBean);
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                        if(!hasCh){
-                            if (mVideoView.getMediaPlayer() instanceof IjkMediaPlayer){
-                                ((IjkMediaPlayer)(mVideoView.getMediaPlayer())).setTrack(subtitleTrackList.get(0).trackId);
-                            }else if (mVideoView.getMediaPlayer() instanceof EXOmPlayer){
-                                ((EXOmPlayer)(mVideoView.getMediaPlayer())).selectExoTrack(subtitleTrackList.get(0));
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        String cached = (String) CacheManager.getCache(MD5.string2MD5(subtitleCacheKey));
+        if (cached != null && !cached.isEmpty()) mController.mSubtitleView.setSubtitlePath(cached);
+        else if (playSubtitle != null && !playSubtitle.isEmpty()) mController.mSubtitleView.setSubtitlePath(playSubtitle);
     }
 
     private void initViewModel() {
@@ -1016,16 +785,22 @@ public class PlayFragment extends BaseLazyFragment {
         public void onChanged(JSONObject info) {
             if (info != null) {
                 try {
-                    corePlayResult = com.kukuqi.tvbox.engine.bean.Result.objectFrom(info.toString());
+                    JSONObject core = info.optJSONObject("coreResult");
+                    corePlayResult = com.kukuqi.tvbox.engine.bean.Result.objectFrom(core == null ? info.toString() : core.toString());
                     corePlayResult.setKey(sourceKey);
+                    final com.kukuqi.tvbox.engine.bean.Result qualities = corePlayResult;
+                    mVideoView.setQualityOptions(qualities, index -> {
+                        if (!isAdded() || mVideoView == null || corePlayResult != qualities) return;
+                        if (index == qualities.getUrl().getPosition()) return;
+                        qualityResumePosition = mVideoView.getCurrentPosition();
+                        qualityResumePlaying = mVideoView.isPlaying();
+                        qualities.getUrl().set(index);
+                        autoRetryCount = 0;
+                        playCoreSelection();
+                    });
                     progressKey = info.optString("proKey", null);
-                    boolean parse = info.optString("parse", "1").equals("1");
-                    boolean jx = info.optString("jx", "0").equals("1");
                     playSubtitle = info.optString("subt", /*"https://dash.akamaized.net/akamai/test/caption_test/ElephantsDream/ElephantsDream_en.vtt"*/"");
                     subtitleCacheKey = info.optString("subtKey", null);
-                    String playUrl = info.optString("playUrl", "");
-                    String flag = info.optString("flag");
-                    String url = info.getString("url");
                     HashMap<String, String> headers = null;
                     webUserAgent = null;
                     webHeaderMap = null;
@@ -1049,13 +824,7 @@ public class PlayFragment extends BaseLazyFragment {
                         }
                     }
                     playerRequestHeaders = headers == null ? new HashMap<>() : new HashMap<>(headers);
-                    if (parse || jx) {
-                        boolean userJxList = (playUrl.isEmpty() && ApiConfig.get().getVipParseFlags().contains(flag)) || jx;
-                        initParse(flag, userJxList, playUrl, url);
-                    } else {
-                        mController.showParse(false);
-                        playUrl(playUrl + url, headers);
-                    }
+                    playCoreSelection();
                     com.google.gson.JsonElement comments = info.has("danmaku") && !info.isNull("danmaku")
                             ? com.google.gson.JsonParser.parseString(info.toString()).getAsJsonObject().get("danmaku") : null;
                     mVideoView.setDanmakuContext(comments, mVodInfo == null ? "" : mVodInfo.name,
@@ -1170,6 +939,7 @@ public class PlayFragment extends BaseLazyFragment {
 
         EventBus.getDefault().unregister(this);
         if (mVideoView != null) {
+            mVideoView.setQualityOptions(null, null);
             mVideoView.release();
             mVideoView = null;
         }
@@ -1246,6 +1016,8 @@ public class PlayFragment extends BaseLazyFragment {
 
     public void play(boolean reset) {
         if (mVodInfo == null) return;
+        qualityResumePosition = -1;
+        if (mVideoView != null) mVideoView.setQualityOptions(null, null);
         VodInfo.VodSeries vs = mVodInfo.seriesMap.get(mVodInfo.playFlag).get(mVodInfo.playIndex);
         EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_REFRESH, mVodInfo.playIndex));
         EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_REFRESH_NOTIFY, mVodInfo.name + "&&" + vs.name));
@@ -1267,6 +1039,21 @@ public class PlayFragment extends BaseLazyFragment {
     }
 
     private com.kukuqi.tvbox.engine.bean.Result corePlayResult;
+    private long qualityResumePosition = -1;
+    private boolean qualityResumePlaying;
+
+    private void playCoreSelection() {
+        if (corePlayResult == null) return;
+        String url = corePlayResult.getUrl().v();
+        String prefix = corePlayResult.getPlayUrl();
+        if (corePlayResult.needParse()) {
+            boolean useParse = (prefix.isEmpty() && ApiConfig.get().getVipParseFlags().contains(corePlayResult.getFlag())) || corePlayResult.getJx() == 1;
+            initParse(corePlayResult.getFlag(), useParse, prefix, url);
+        } else {
+            mController.showParse(false);
+            playUrl(prefix + url, new HashMap<>(corePlayResult.getHeader()));
+        }
+    }
     private com.kukuqi.tvbox.engine.player.parse.ParseJob coreParseJob;
     private String playSubtitle;
     private String subtitleCacheKey;

@@ -23,7 +23,7 @@ public class Sniffer {
 
     public static final Pattern CLICKER = Pattern.compile("\\[a=cr:(\\{.*?\\})\\/](.*?)\\[\\/a]");
     public static final Pattern AI_PUSH = Pattern.compile("(https?|thunder|magnet|ed2k|video):\\S+");
-    public static final Pattern SNIFFER = Pattern.compile("https?://[^\\s]{12,}\\.(?:m3u8|mp4|mkv|flv|mp3|m4a|aac|mpd)(?:\\?.*)?|https?://.*?video/tos[^\\s]*|rtmp:[^\\s]+");
+    public static final Pattern SNIFFER = Pattern.compile("^https?://[^\\s?#]+\\.(?:m3u8|mp4|mkv|flv|mp3|m4a|aac|mpd|avi|rm|rmvb|wmv|mpg|mpeg|mov|webm|m4v|ts|wav|flac|ogg|opus)(?:[?#][^\\s]*)?$|^https?://.*?video/tos[^\\s]*$|^rtmps?://[^\\s]+$", Pattern.CASE_INSENSITIVE);
 
     public static String getUrl(String text) {
         if (Json.isObj(text) || text.contains("$")) return text;
@@ -38,7 +38,8 @@ public class Sniffer {
         for (String exclude : rule.getExclude()) if (Pattern.compile(exclude).matcher(url).find()) return false;
         for (String regex : rule.getRegex()) if (url.contains(regex)) return true;
         for (String regex : rule.getRegex()) if (Pattern.compile(regex).matcher(url).find()) return true;
-        if (url.contains("url=http") || url.contains("v=http") || url.contains(".html")) return false;
+        String lower = url.toLowerCase(java.util.Locale.ROOT);
+        if (lower.contains("url=http") || lower.contains("v=http") || lower.contains(".html")) return false;
         return SNIFFER.matcher(url).find();
     }
 

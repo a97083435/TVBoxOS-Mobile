@@ -10,3 +10,15 @@ project(':tvbox-engine').projectDir = file('engine/core')
 project(':source-runtime').projectDir = file('engine/catvod')
 project(':js-runtime').projectDir = file('engine/quickjs')
 project(':python-runtime').projectDir = file('engine/chaquo')
+
+include ':runtime-python'
+project(':runtime-python').projectDir = file('runtime/python')
+
+include ':runtime-quickjs'
+project(':runtime-quickjs').projectDir = file('runtime/quickjs')
+
+include ':runtime-thunder'
+project(':runtime-thunder').projectDir = file('runtime/thunder')
+include ':runtime-nodejs', ':runtime-bdj'
+project(':runtime-nodejs').projectDir = file('runtime/nodejs')
+project(':runtime-bdj').projectDir = file('runtime/bdj')

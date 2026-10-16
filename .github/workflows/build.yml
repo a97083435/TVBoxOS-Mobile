@@ -23,11 +23,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
+        id: java8
+        with:
+          distribution: temurin
+          java-version: '8'
+      - name: Preserve BD-J build JDK
+        run: echo "JAVA8_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+      - name: Install BD-J Java build tool
+        run: sudo apt-get update && sudo apt-get install -y ant
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
       - name: Install Android API 37
-        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0"'
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0" "ndk;29.0.14206865"'
       - uses: gradle/actions/setup-gradle@v4
       - uses: actions/setup-python@v5
         with:
@@ -39,7 +48,7 @@ jobs:
           chmod +x gradlew
           mkdir -p build
           set -o pipefail
-          ./gradlew :app:assembleDebug :app:testDebugUnitTest --stacktrace --no-daemon 2>&1 | tee build/gradle-build.log
+          ./gradlew :app:assembleDebug :app:testDebugUnitTest :runtime-python:assembleDebug :runtime-quickjs:assembleDebug :runtime-thunder:assembleDebug :runtime-nodejs:assembleDebug :runtime-bdj:assembleDebug --stacktrace --no-daemon 2>&1 | tee build/gradle-build.log
       - name: Report build failure
         if: failure()
         run: |
@@ -57,7 +66,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: TVboxOSC-debug
-          path: app/build/outputs/apk/debug/*.apk
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            runtime/*/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
       - name: Upload build log and test reports
@@ -103,11 +114,20 @@ jobs:
         with:
           fetch-depth: 0
       - uses: actions/setup-java@v4
+        id: java8
+        with:
+          distribution: temurin
+          java-version: '8'
+      - name: Preserve BD-J build JDK
+        run: echo "JAVA8_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+      - name: Install BD-J Java build tool
+        run: sudo apt-get update && sudo apt-get install -y ant
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
       - name: Install Android API 37
-        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0"'
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0" "ndk;29.0.14206865"'
       - uses: gradle/actions/setup-gradle@v4
       - uses: actions/setup-python@v5
         with:
@@ -130,7 +150,7 @@ jobs:
           TVBOX_STORE_PASSWORD: ${{ secrets.TVBOX_STORE_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew :app:assembleRelease --stacktrace --no-daemon
+          ./gradlew :app:assembleRelease :runtime-python:assembleRelease :runtime-quickjs:assembleRelease :runtime-thunder:assembleRelease :runtime-nodejs:assembleRelease :runtime-bdj:assembleRelease --stacktrace --no-daemon
       - name: Verify APK and generate update manifest
         env:
           VERSION: ${{ needs.plan-release.outputs.version }}
@@ -138,6 +158,17 @@ jobs:
           python scripts/release.py metadata \
             --apk "app/build/outputs/apk/release/TVboxOSC-v${VERSION}.apk" \
             --output build/release/update.json \
+            --aapt "$ANDROID_HOME/build-tools/37.0.0/aapt" \
+            --apksigner "$ANDROID_HOME/build-tools/37.0.0/apksigner"
+      - name: Verify modules and generate download catalog
+        env:
+          TAG: ${{ needs.plan-release.outputs.tag }}
+          VERSION: ${{ needs.plan-release.outputs.version }}
+        run: |
+          python scripts/runtime_catalog.py --variant release \
+            --base-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/" \
+            --output build/runtime-dist \
+            --host-apk "app/build/outputs/apk/release/TVboxOSC-v${VERSION}.apk" \
             --aapt "$ANDROID_HOME/build-tools/37.0.0/aapt" \
             --apksigner "$ANDROID_HOME/build-tools/37.0.0/apksigner"
       - name: Create tag and publish verified assets
@@ -149,7 +180,7 @@ jobs:
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --target "$GITHUB_SHA" --title "TVboxOSC ${VERSION}" --draft --notes-file app/build/generated/releaseNotes/release-notes.txt
           fi
-          gh release upload "$TAG" "app/build/outputs/apk/release/TVboxOSC-v${VERSION}.apk" build/release/update.json --clobber
+          gh release upload "$TAG" "app/build/outputs/apk/release/TVboxOSC-v${VERSION}.apk" build/release/update.json build/runtime-dist/*.apk build/runtime-dist/catalog.json --clobber
           gh release edit "$TAG" --draft=false --latest
       - name: Remove signing material
         if: always()

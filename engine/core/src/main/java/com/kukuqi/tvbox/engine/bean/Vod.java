@@ -35,6 +35,9 @@ public class Vod implements Parcelable, Diffable<Vod> {
     @Element(name = "id", required = false)
     @SerializedName("vod_id")
     private String vodId;
+    @Element(name = "tid", required = false)
+    @SerializedName("type_id")
+    private String typeId;
     @Element(name = "name", required = false)
     @SerializedName("vod_name")
     private String vodName;
@@ -90,6 +93,7 @@ public class Vod implements Parcelable, Diffable<Vod> {
 
     protected Vod(Parcel in) {
         this.vodId = in.readString();
+        this.typeId = in.readString();
         this.vodName = in.readString();
         this.typeName = in.readString();
         this.vodPic = in.readString();
@@ -333,6 +337,7 @@ public class Vod implements Parcelable, Diffable<Vod> {
     @Override
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeString(this.vodId);
+        dest.writeString(this.typeId);
         dest.writeString(this.vodName);
         dest.writeString(this.typeName);
         dest.writeString(this.vodPic);

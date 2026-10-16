@@ -30,10 +30,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class FeatureRegressionTest extends InstrumentationTestCase {
     private static final String VIDEO = "/sdcard/Download/tvbox-regression.mp4";
     private final Map<String,Object> before = new HashMap<>();
-    private final String[] keys = {HawkConfig.API_URL,HawkConfig.HOME_API,HawkConfig.HOME_REC,HawkConfig.PLAY_TYPE,
+    private final String[] keys = {HawkConfig.API_URL,HawkConfig.LIVE_URL,HawkConfig.HOME_API,HawkConfig.HOME_REC,HawkConfig.PLAY_TYPE,
             HawkConfig.BACKGROUND_PLAY_TYPE,HawkConfig.PRIVATE_BROWSING,HawkConfig.IJK_CODEC,"danmaku_load","danmaku_show","danmaku_auto",
             "danmaku_api_url","danmaku_spider_first","hot_search_cache","hot_search_time","poster_size","theme_color","live_playlist_url",
-            "wallpaper_mode",HawkConfig.WALLPAPER_URL,"wallpaper_softness"};
+            "wallpaper_mode",HawkConfig.WALLPAPER_URL,"wallpaper_softness","home_hot","home_hot_day"};
     private final java.util.Queue<String> routes=new java.util.concurrent.ConcurrentLinkedQueue<>();
     private NanoHTTPD server; private File config; private String base; private Activity active;
     private final AtomicInteger homeRequests = new AtomicInteger(), searchRequests = new AtomicInteger(), matchRequests = new AtomicInteger(), commentRequests = new AtomicInteger();
@@ -75,7 +75,77 @@ public class FeatureRegressionTest extends InstrumentationTestCase {
     }
     @Override protected void tearDown() throws Exception {
         onMain(()->{ if(active!=null)active.finish(); for(String key:keys) {if(before.containsKey(key))Hawk.put(key,before.get(key)); else Hawk.delete(key);} });
+        if (active != null) waitFor(active::isDestroyed);
+        getInstrumentation().waitForIdleSync();
         server.stop(); config.delete(); super.tearDown();
+    }
+    public void testLegacyHomepageMigratesToStationRecommendations() throws Exception {
+        okhttp3.OkHttpClient original = com.lzy.okgo.OkGo.getInstance().getOkHttpClient();
+        AtomicInteger doubanRequests = new AtomicInteger();
+        com.lzy.okgo.OkGo.getInstance().setOkHttpClient(original.newBuilder().addInterceptor(chain -> {
+            if (!chain.request().url().host().equals("movie.douban.com")) return chain.proceed(chain.request());
+            doubanRequests.incrementAndGet();
+            return new okhttp3.Response.Builder().request(chain.request()).protocol(okhttp3.Protocol.HTTP_1_1)
+                    .code(403).message("Forbidden").body(okhttp3.ResponseBody.create(okhttp3.MediaType.parse("text/plain"), "Forbidden")).build();
+        }).build());
+        try {
+            onMain(() -> {
+                Hawk.delete(HawkConfig.HOME_REC);
+                HomeRecommendationSettings.migrate();
+                assertEquals(1, (int)Hawk.get(HawkConfig.HOME_REC));
+                Hawk.put(HawkConfig.HOME_REC, 99);
+                HomeRecommendationSettings.migrate();
+                assertEquals(1, (int)Hawk.get(HawkConfig.HOME_REC));
+                loadConfig();
+                Hawk.put(HawkConfig.HOME_REC, 0);
+                HomeRecommendationSettings.migrate();
+                assertEquals(1, (int)Hawk.get(HawkConfig.HOME_REC));
+            });
+            MainActivity main = (MainActivity)getInstrumentation().startActivitySync(new Intent(getInstrumentation().getTargetContext(), MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            active = main;
+            waitFor(() -> main.findViewById(R.id.tvHotList1) != null
+                    && ((RecyclerView)main.findViewById(R.id.tvHotList1)).getAdapter() != null
+                    && ((RecyclerView)main.findViewById(R.id.tvHotList1)).getAdapter().getItemCount() == 60);
+            onMain(() -> assertEquals(View.GONE, main.findViewById(R.id.homeRecommendationStatus).getVisibility()));
+            assertEquals(0, doubanRequests.get());
+            capture("station-home-after-migration.png");
+        } finally { com.lzy.okgo.OkGo.getInstance().setOkHttpClient(original); }
+    }
+
+    public void testDisabledHomepageAndTwoOptionSettingsKeepPersistedIds() throws Exception {
+        onMain(() -> {
+            loadConfig();
+            Hawk.put(HawkConfig.HOME_REC, 2);
+            HomeRecommendationSettings.migrate();
+            assertEquals(2, (int)Hawk.get(HawkConfig.HOME_REC));
+        });
+        MainActivity main = (MainActivity)getInstrumentation().startActivitySync(new Intent(getInstrumentation().getTargetContext(), MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        active = main;
+        waitFor(() -> main.findViewById(R.id.mViewPager) != null
+                && ((androidx.viewpager.widget.ViewPager)main.findViewById(R.id.mViewPager)).getAdapter() != null);
+        onMain(() -> {
+            assertEquals(1, ((androidx.viewpager.widget.ViewPager)main.findViewById(R.id.mViewPager)).getAdapter().getCount());
+            assertNull(findFragment(main.getSupportFragmentManager(), com.kukuqi.tvbox.osc.ui.fragment.UserFragment.class));
+            ((com.google.android.material.bottomnavigation.BottomNavigationView)main.findViewById(R.id.bottom_nav)).setSelectedItemId(R.id.navigation_dashboard);
+        });
+        waitFor(() -> main.findViewById(R.id.llHomeRec) != null);
+        onMain(() -> main.findViewById(R.id.llHomeRec).performClick());
+        waitFor(() -> node("主页内容显示") != null && node("站点推荐") != null);
+        assertNull(node("豆瓣热播"));
+        assertTrue(node("关闭").isChecked());
+        assertFalse(node("站点推荐").isChecked());
+        click(node("站点推荐"));
+        waitFor(() -> Hawk.get(HawkConfig.HOME_REC, -1) == 1);
+        waitFor(() -> node("站点推荐").isChecked());
+        getInstrumentation().getUiAutomation().performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK);
+        waitFor(() -> node("主页内容显示") == null);
+        // Opening again must select row 0 for persisted mode 1, not row 1 (disabled).
+        onMain(() -> main.findViewById(R.id.llHomeRec).performClick());
+        waitFor(() -> node("主页内容显示") != null);
+        assertTrue(node("站点推荐").isChecked());
+        assertFalse(node("关闭").isChecked());
+        capture("home-mode-two-options.png");
+        getInstrumentation().getUiAutomation().performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK);
     }
     public void testBrowseRefreshSwitchesButtonAndReturnsToTop() throws Exception {
         MainActivity main=(MainActivity)getInstrumentation().startActivitySync(new Intent(getInstrumentation().getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); active=main;
@@ -117,6 +187,90 @@ public class FeatureRegressionTest extends InstrumentationTestCase {
         onMain(()->{player[0].seekTo(2000); player[0].startFullScreen();});
         waitFor(()->player[0].isFullScreen()); Thread.sleep(300);capture("video-danmaku-fullscreen.png");
         onMain(()->assertEquals(2,player[0].getDanmakuCount()));
+    }
+    public void testQualitySwitchKeepsPositionAndPausedState() throws Exception {
+        DetailActivity detail = (DetailActivity)getInstrumentation().startActivitySync(new Intent(getInstrumentation().getTargetContext(), DetailActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("sourceKey", VideoLinkDialog.SOURCE).putExtra("id", base+"/video.mp4"));
+        active = detail;
+        PlayFragment[] fragment = {null};
+        waitFor(() -> { fragment[0] = findFragment(detail.getSupportFragmentManager(), PlayFragment.class); return fragment[0] != null && fragment[0].getPlayer() != null && fragment[0].getPlayer().isPlaying(); });
+        MyVideoView video = fragment[0].getPlayer();
+        org.json.JSONObject response = new org.json.JSONObject("{\"parse\":0,\"url\":\""+base+"/video.mp4\",\"proKey\":\"quality-regression\",\"coreResult\":{\"parse\":0,\"url\":[\"1080P\",\""+base+"/video.mp4\",\"720P\",\""+base+"/video.mp4?low\"]}}");
+        java.lang.reflect.Field field = PlayFragment.class.getDeclaredField("sourceViewModel"); field.setAccessible(true);
+        com.kukuqi.tvbox.osc.viewmodel.SourceViewModel model = (com.kukuqi.tvbox.osc.viewmodel.SourceViewModel)field.get(fragment[0]);
+        onMain(() -> model.playResult.setValue(response));
+        waitFor(video::isPlaying);
+        onMain(() -> video.seekTo(5000)); waitFor(() -> video.getCurrentPosition() >= 4900);
+        onMain(video::pause); waitFor(() -> !video.isPlaying());
+        long[] pausedPosition = {0};
+        onMain(() -> pausedPosition[0] = video.getCurrentPosition());
+        long paused = pausedPosition[0];
+        onMain(() -> com.kukuqi.tvbox.osc.ui.dialog.FeatureSettingsDialog.corePlayback(detail, video));
+        waitFor(() -> node("清晰度 · 1080P ›") != null); click(node("清晰度 · 1080P ›"));
+        waitFor(() -> node("720P") != null); click(node("720P"));
+        waitFor(() -> video.getQualityOptions().getUrl().getPosition() == 1 && video.isInPlaybackState() && video.getCurrentPosition() >= paused-500 && !video.isPlaying());
+        Thread.sleep(600);
+        onMain(() -> { assertFalse(video.isPlaying()); assertTrue(Math.abs(video.getCurrentPosition()-paused) < 700); video.resume(); });
+        waitFor(() -> video.isPlaying() && video.getCurrentPosition() > paused+100);
+        onMain(() -> video.selectQuality(0));
+        waitFor(() -> video.getQualityOptions().getUrl().getPosition() == 0 && video.isPlaying() && video.getCurrentPosition() >= paused);
+    }
+
+    public void testPlaybackOptionsDoNotMutateUntilEditedAndKeepPresetProfile() throws Exception {
+        android.content.SharedPreferences preferences = com.github.catvod.utils.Prefers.getPrefers();
+        Map<String, ?> before = new HashMap<>(preferences.getAll());
+        try {
+            onMain(() -> { Hawk.put(HawkConfig.PLAY_TYPE, 1); com.kukuqi.tvbox.engine.setting.VideoSetting.putPreset(2); });
+            LocalPlayActivity local = (LocalPlayActivity)getInstrumentation().startActivitySync(new Intent(getInstrumentation().getTargetContext(), LocalPlayActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("position",0).putExtra("videoList", "[{\"path\":\""+VIDEO+"\",\"displayName\":\"播放选项回归\"}]"));
+            active = local;
+            MyVideoView video = local.findViewById(R.id.player); waitFor(video::isPlaying);
+            com.kukuqi.tvbox.osc.player.CorePlayer core = (com.kukuqi.tvbox.osc.player.CorePlayer)video.getMediaPlayer();
+            com.kukuqi.tvbox.engine.player.effect.video.VideoEffectProfile profile = com.kukuqi.tvbox.engine.setting.VideoSetting.getProfile();
+            Map<String, ?> opened = new HashMap<>(preferences.getAll());
+            onMain(() -> com.kukuqi.tvbox.osc.ui.dialog.FeatureSettingsDialog.corePlayback(local,video));
+            waitFor(() -> node("画面调节 ›") != null); capture("core-playback-options.png"); click(node("画面调节 ›"));
+            waitFor(() -> node("画面预设 ›") != null); capture("core-video-effects.png");
+            assertEquals("Opening a panel must preserve settings",opened,preferences.getAll());
+            AccessibilityNodeInfo slider = slider("饱和度"); assertNotNull(slider);
+            android.os.Bundle args = new android.os.Bundle(); args.putFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE, 12);
+            assertTrue(slider.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.getId(),args));
+            waitFor(() -> com.kukuqi.tvbox.engine.setting.VideoSetting.getPreset() == 13);
+            assertEquals(profile.getContrast(),com.kukuqi.tvbox.engine.setting.VideoSetting.getContrast(),.001f);
+            assertEquals(profile.getBrightness(),com.kukuqi.tvbox.engine.setting.VideoSetting.getBrightness(),.001f);
+            click(node("×"));
+            onMain(() -> com.kukuqi.tvbox.osc.ui.dialog.FeatureSettingsDialog.corePlayback(local,video));
+            click(scrollTo("音画／字幕同步 ›")); waitFor(() -> slider("音频延迟") != null);
+            args.putFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE,115);
+            assertTrue(slider("音频延迟").performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.getId(),args));
+            waitFor(() -> core.manager().getAudioOffsetMs() == 1500);
+            click(scrollTo("重置同步")); waitFor(() -> core.manager().getAudioOffsetMs() == 0 && core.manager().getTextOffsetMs() == 0);
+        } finally {
+            onMain(() -> {
+                if(active != null) active.finish();
+                android.content.SharedPreferences.Editor editor = preferences.edit().clear();
+                for(Map.Entry<String, ?> entry : before.entrySet()) {
+                    Object value = entry.getValue(); String key = entry.getKey();
+                    if(value instanceof Boolean) editor.putBoolean(key,(Boolean)value);
+                    else if(value instanceof Integer) editor.putInt(key,(Integer)value);
+                    else if(value instanceof Long) editor.putLong(key,(Long)value);
+                    else if(value instanceof Float) editor.putFloat(key,(Float)value);
+                    else if(value instanceof String) editor.putString(key,(String)value);
+                    else if(value instanceof Set) editor.putStringSet(key,(Set<String>)value);
+                }
+                editor.commit();
+            });
+        }
+    }
+    private AccessibilityNodeInfo slider(String description) {
+        AccessibilityNodeInfo root = getInstrumentation().getUiAutomation().getRootInActiveWindow();
+        return slider(root,description);
+    }
+    private AccessibilityNodeInfo slider(AccessibilityNodeInfo node,String description) {
+        if(node == null) return null;
+        if(description.contentEquals(node.getContentDescription()==null?"":node.getContentDescription())) return node;
+        for(int i=0;i<node.getChildCount();i++) { AccessibilityNodeInfo found=slider(node.getChild(i),description); if(found!=null)return found; }
+        return null;
     }
     public void testCategoryKeepsFilterAndTopActions() throws Exception {
         MainActivity main=(MainActivity)getInstrumentation().startActivitySync(new Intent(getInstrumentation().getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));active=main;
@@ -170,6 +324,95 @@ public class FeatureRegressionTest extends InstrumentationTestCase {
             onMain(about::finish);waitFor(main::hasWindowFocus);active=main;
         } finally {getInstrumentation().removeMonitor(monitor);onMain(main::finish);}
     }
+    public void testHotWordsUseOnly360RankProvider() throws Exception {
+        okhttp3.OkHttpClient original = com.lzy.okgo.OkGo.getInstance().getOkHttpClient();
+        AtomicInteger primary = new AtomicInteger(), fallback = new AtomicInteger();
+        com.lzy.okgo.OkGo.getInstance().setOkHttpClient(original.newBuilder().addInterceptor(chain -> {
+            String host = chain.request().url().host();
+            if (!host.equals("api.web.360kan.com") && !host.equals("movie.douban.com")) return chain.proceed(chain.request());
+            if (host.equals("api.web.360kan.com")) {
+                primary.incrementAndGet();
+                assertEquals("https://www.360kan.com/rank/general", chain.request().header("Referer"));
+            } else fallback.incrementAndGet();
+            return new okhttp3.Response.Builder().request(chain.request()).protocol(okhttp3.Protocol.HTTP_1_1)
+                    .code(200).message("OK").body(okhttp3.ResponseBody.create(okhttp3.MediaType.parse("application/json"),
+                            "{\"data\":[{\"title\":\"庆余年 第二季\"},{\"title\":\"三体\"},{\"title\":\"三体\"}]}" )).build();
+        }).build());
+        try {
+            onMain(() -> { Hawk.delete("hot_search_cache"); Hawk.delete("home_hot"); });
+            java.util.concurrent.atomic.AtomicReference<List<String>> words = new java.util.concurrent.atomic.AtomicReference<>();
+            onMain(() -> HotSearch.load(true, (titles, status) -> words.set(titles)));
+            waitFor(() -> words.get() != null);
+            assertEquals(Arrays.asList("庆余年 第二季", "三体"), words.get());
+            assertEquals(1, primary.get()); assertEquals(0, fallback.get());
+            assertTrue(Hawk.<String>get("hot_search_cache").contains("庆余年 第二季"));
+        } finally { com.lzy.okgo.OkGo.getInstance().setOkHttpClient(original); }
+    }
+
+    public void testBlockedHotWordsStillAllowManualSourceSearch() throws Exception {
+        okhttp3.OkHttpClient original = com.lzy.okgo.OkGo.getInstance().getOkHttpClient();
+        AtomicInteger doubanRequests = new AtomicInteger();
+        com.lzy.okgo.OkGo.getInstance().setOkHttpClient(original.newBuilder().addInterceptor(chain -> {
+            if (!chain.request().url().host().equals("movie.douban.com") && !chain.request().url().host().equals("api.web.360kan.com")) return chain.proceed(chain.request());
+            if (chain.request().url().host().equals("movie.douban.com")) doubanRequests.incrementAndGet();
+            return new okhttp3.Response.Builder().request(chain.request()).protocol(okhttp3.Protocol.HTTP_1_1)
+                    .code(403).message("Forbidden").body(okhttp3.ResponseBody.create(okhttp3.MediaType.parse("text/plain"), "Forbidden")).build();
+        }).build());
+        try {
+            onMain(() -> { loadConfig(); Hawk.delete("hot_search_cache"); Hawk.delete("home_hot"); });
+            FastSearchActivity search = (FastSearchActivity)getInstrumentation().startActivitySync(new Intent(getInstrumentation().getTargetContext(), FastSearchActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            active = search;
+            waitFor(() -> ((android.widget.TextView)search.findViewById(R.id.tv_hot_status)).getText().toString().contains("热门榜单访问受限"));
+            onMain(() -> {
+                ((android.widget.EditText)search.findViewById(R.id.et_search)).setText("测试影片");
+                search.findViewById(R.id.iv_search).performClick();
+            });
+            waitFor(() -> searchRequests.get() > 0);
+            assertFalse(Hawk.contains("hot_search_cache"));
+            assertEquals(0, doubanRequests.get());
+        } finally { com.lzy.okgo.OkGo.getInstance().setOkHttpClient(original); }
+    }
+
+    public void testHotWordsCacheSurvives360FailureWithoutLegacyHomepageFallback() throws Exception {
+        okhttp3.OkHttpClient original = com.lzy.okgo.OkGo.getInstance().getOkHttpClient();
+        AtomicInteger requests = new AtomicInteger();
+        com.lzy.okgo.OkGo.getInstance().setOkHttpClient(original.newBuilder().addInterceptor(chain -> {
+            if (!chain.request().url().host().equals("api.web.360kan.com")) return chain.proceed(chain.request());
+            requests.incrementAndGet();
+            return new okhttp3.Response.Builder().request(chain.request()).protocol(okhttp3.Protocol.HTTP_1_1)
+                    .code(403).message("Forbidden").body(okhttp3.ResponseBody.create(okhttp3.MediaType.parse("text/plain"), "Forbidden")).build();
+        }).build());
+        try {
+            String cache = "[\"已缓存的360片名\"]";
+            onMain(() -> {
+                Hawk.put("hot_search_cache", cache);
+                Hawk.put("hot_search_time", System.currentTimeMillis());
+                Hawk.put("home_hot", "{\"subjects\":[{\"title\":\"旧豆瓣缓存\"}]}");
+            });
+            java.util.concurrent.atomic.AtomicReference<String> status = new java.util.concurrent.atomic.AtomicReference<>();
+            onMain(() -> HotSearch.load(false, (words, message) -> {
+                assertEquals(Collections.singletonList("已缓存的360片名"), words);
+                status.set(message);
+            }));
+            assertNotNull(status.get());
+            assertEquals(0, requests.get());
+            onMain(() -> HotSearch.load(true, (words, message) -> {
+                assertEquals(Collections.singletonList("已缓存的360片名"), words);
+                status.set(message);
+            }));
+            waitFor(() -> status.get().contains("刷新失败"));
+            assertEquals(1, requests.get());
+            assertEquals(cache, Hawk.get("hot_search_cache", ""));
+            onMain(() -> {
+                Hawk.delete("hot_search_cache");
+                status.set("");
+                HotSearch.load(true, (words, message) -> { assertTrue(words.isEmpty()); status.set(message); });
+            });
+            waitFor(() -> status.get().contains("热门榜单访问受限"));
+            assertEquals(2, requests.get());
+        } finally { com.lzy.okgo.OkGo.getInstance().setOkHttpClient(original); }
+    }
+
     public void testHotSearchClicksCompleteWordWithoutRecordingPrivateHistory() throws Exception {
         onMain(()->{Hawk.put("hot_search_cache","[\"庆余年 第二季\",\"三体\"]");Hawk.put("hot_search_time",System.currentTimeMillis());loadConfig();});
         Object history=Hawk.get(HawkConfig.HISTORY_SEARCH,null);
@@ -187,6 +430,46 @@ public class FeatureRegressionTest extends InstrumentationTestCase {
         waitFor(()->groups[0]!=null||error[0]!=null);
         assertNotNull(error[0],groups[0]);
         assertEquals("/second.m3u",groups[0].get(0).getAsJsonObject().getAsJsonArray("channels").get(0).getAsJsonObject().get("name").getAsString());
+    }
+    public void testPlaylistSelectionMovesIntoLiveSourceWithoutLosingPlayback() throws Exception {
+        String sourceUrl = "file://" + config.getAbsolutePath();
+        onMain(() -> {
+            loadConfig();
+            Hawk.put(HawkConfig.LIVE_URL, sourceUrl);
+            Hawk.put("live_playlist_url", "");
+            SourceManager.record(sourceUrl, readConfig());
+        });
+        MainActivity main = (MainActivity)getInstrumentation().startActivitySync(new Intent(getInstrumentation().getTargetContext(), MainActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra(MainActivity.EXTRA_START_DESTINATION, R.id.navigation_dashboard));
+        active = main;
+        com.kukuqi.tvbox.osc.ui.dialog.SourcePickerDialog picker = new com.kukuqi.tvbox.osc.ui.dialog.SourcePickerDialog(main,
+                com.kukuqi.tvbox.osc.ui.dialog.SourcePickerDialog.LIVE, null);
+        onMain(() -> new com.lxj.xpopup.XPopup.Builder(main).asCustom(picker).show());
+        waitFor(() -> picker.findViewById(R.id.source_playlist) != null && picker.findViewById(R.id.source_playlist).getVisibility() == View.VISIBLE);
+        onMain(() -> picker.findViewById(R.id.source_playlist).performClick());
+        waitFor(() -> node("线路二") != null);
+        click(node("线路二"));
+        waitFor(() -> Hawk.get("live_playlist_url", "").equals(base + "/second.m3u"));
+        com.google.gson.JsonArray[] groups = {null}; String[] error = {null};
+        onMain(() -> LiveSourceLoader.load(sourceUrl, (value, message) -> { groups[0] = value; error[0] = message; }));
+        waitFor(() -> groups[0] != null || error[0] != null);
+        assertNotNull(error[0], groups[0]);
+        assertEquals("/second.m3u", groups[0].get(0).getAsJsonObject().getAsJsonArray("channels").get(0).getAsJsonObject().get("name").getAsString());
+        capture("my-live-source-playlists.png");
+        onMain(picker::dismiss);
+        Thread.sleep(350);
+        // Single playlists and wallpaper sources must not gain an irrelevant selector.
+        onMain(() -> Hawk.put(HawkConfig.LIVE_URL, base + "/first.m3u"));
+        for (int kind : new int[]{com.kukuqi.tvbox.osc.ui.dialog.SourcePickerDialog.LIVE,
+                com.kukuqi.tvbox.osc.ui.dialog.SourcePickerDialog.WALLPAPER}) {
+            com.kukuqi.tvbox.osc.ui.dialog.SourcePickerDialog single = new com.kukuqi.tvbox.osc.ui.dialog.SourcePickerDialog(main, kind, null);
+            onMain(() -> new com.lxj.xpopup.XPopup.Builder(main).asCustom(single).show());
+            waitFor(() -> single.findViewById(R.id.source_playlist) != null);
+            onMain(() -> assertEquals(View.GONE, single.findViewById(R.id.source_playlist).getVisibility()));
+            onMain(single::dismiss);
+            Thread.sleep(350);
+        }
+        assertEquals(sourceUrl, Hawk.get(HawkConfig.API_URL, ""));
     }
     public void testReadonlyModulesCanLoadAndReloadOnAndroid14() throws Exception {
         File source=new File(getInstrumentation().getTargetContext().getCacheDir(),"module-fixture.jar");
@@ -228,6 +511,7 @@ public class FeatureRegressionTest extends InstrumentationTestCase {
     public void testAutomaticParserRacesAllWebLinesAgainstJson() throws Exception {
         MainActivity main=(MainActivity)getInstrumentation().startActivitySync(new Intent(getInstrumentation().getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra(MainActivity.EXTRA_START_DESTINATION,R.id.navigation_dashboard));active=main;
         waitFor(()->main.findViewById(R.id.llModuleManager)!=null);
+        assertNull(node("热门搜索"));
         com.kukuqi.tvbox.osc.bean.ParseBean json=new com.kukuqi.tvbox.osc.bean.ParseBean(),empty=new com.kukuqi.tvbox.osc.bean.ParseBean(),web=new com.kukuqi.tvbox.osc.bean.ParseBean();
         json.setUrl(base+"/json-slow?url=");empty.setUrl(base+"/web-empty?url=");web.setUrl(base+"/web-video?url=");
         String[] result={null};AtomicInteger wins=new AtomicInteger();com.kukuqi.tvbox.osc.player.AutomaticParser[] job={null};
@@ -250,22 +534,28 @@ public class FeatureRegressionTest extends InstrumentationTestCase {
         onMain(this::loadConfig);
         MainActivity main=(MainActivity)getInstrumentation().startActivitySync(new Intent(getInstrumentation().getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra(MainActivity.EXTRA_START_DESTINATION,R.id.navigation_dashboard));active=main;
         waitFor(()->main.findViewById(R.id.llModuleManager)!=null);
-        int[] entries={R.id.llVodHome,R.id.llLiveHome,R.id.llSourceHistory,R.id.llModuleManager,R.id.llPlaybackSettings,R.id.llDanmakuSettings,R.id.llImageSize,R.id.llThemeColor,R.id.llHotSearch};
-        onMain(()->{for(int id:entries)assertTrue(main.findViewById(id).hasOnClickListeners());});
+        int[] entries={R.id.llVodApi,R.id.llLiveApi,R.id.llWallpaper,R.id.llModuleManager,R.id.llPlaybackSettings,R.id.llDanmakuSettings,R.id.llImageSize,R.id.llTheme,
+                R.id.llPlay,R.id.llBackgroundPlay,R.id.llScale,R.id.llRender,R.id.llVideoPurify,R.id.llIjkCachePlay};
+        onMain(()->{
+            for(int id:entries)assertTrue(main.findViewById(id).hasOnClickListeners());
+            for(String label:new String[]{"首页站点","直播线路","已保存来源","热门搜索","主题色彩"}) assertFalse("Redundant row: " + label, hasText(main.findViewById(R.id.my_scroll),label));
+        });
         capture("my-settings-top.png");
-        onMain(()->main.findViewById(R.id.llModuleManager).performClick());waitFor(()->node("Exo / Media3 · 已启用")!=null);
-        assertNotNull(node("MPV · 已启用"));assertNotNull(node("JAR Spider · 已启用"));assertNotNull(node("QuickJS · 已启用"));assertNotNull(node("Python · 已启用"));
+        onMain(()->main.findViewById(R.id.llModuleManager).performClick());waitFor(()->node("Python · 已安装 1.0.0")!=null);
+        assertNotNull(node("内置：Exo / Media3、MPV、JAR Spider"));assertNotNull(node("QuickJS · 已安装 1.0.0"));assertNotNull(node("Python · 已安装 1.0.0"));
         assertNull(node("Exo 2.18.7 · 内置"));assertNull(node("IJK · 内置"));capture("module-manager.png");node("×").performAction(AccessibilityNodeInfo.ACTION_CLICK);
-        waitFor(()->node("Exo / Media3 · 已启用")==null);
+        waitFor(()->node("Python · 已安装 1.0.0")==null);
         onMain(()->main.findViewById(R.id.llPlaybackSettings).performClick());waitFor(()->node("音频直通：关")!=null||node("音频直通：开")!=null);
+        assertNotNull(node("高级播放设置"));
+        AccessibilityNodeInfo panel = getInstrumentation().getUiAutomation().getRootInActiveWindow();
+        for(String duplicate:new String[]{"默认播放器","渲染方式","画面缩放","后台播放","广告过滤","播放缓存"})
+            assertTrue("Duplicate basic setting: " + duplicate,panel.findAccessibilityNodeInfosByText(duplicate).isEmpty());
         assertNull(node("IJK播放器"));boolean passThrough=com.kukuqi.tvbox.engine.setting.DecodeSetting.isAudioPassThrough();
         capture("playback-settings.png");click(scrollTo(passThrough?"音频直通：开":"音频直通：关"));waitFor(()->com.kukuqi.tvbox.engine.setting.DecodeSetting.isAudioPassThrough()!=passThrough);node("×").performAction(AccessibilityNodeInfo.ACTION_CLICK);onMain(()->com.kukuqi.tvbox.engine.setting.DecodeSetting.putAudioPassThrough(passThrough));
         onMain(()->main.findViewById(R.id.llDanmakuSettings).performClick());waitFor(()->node("加载弹幕：关")!=null||node("加载弹幕：开")!=null);
         boolean was=Hawk.get("danmaku_load",false);node(was?"加载弹幕：开":"加载弹幕：关").performAction(AccessibilityNodeInfo.ACTION_CLICK);waitFor(()->Hawk.get("danmaku_load",false)!=was);capture("danmaku-settings.png");node("×").performAction(AccessibilityNodeInfo.ACTION_CLICK);
         onMain(()->main.findViewById(R.id.llImageSize).performClick());waitFor(()->node("小")!=null);node("小").performAction(AccessibilityNodeInfo.ACTION_CLICK);waitFor(()->Hawk.get("poster_size",2)==0);
         onMain(()->assertTrue(Utils.getPosterSpanCount(main)>=3));
-        onMain(()->main.findViewById(R.id.llThemeColor).performClick());waitFor(()->node("绿色")!=null);node("绿色").performAction(AccessibilityNodeInfo.ACTION_CLICK);waitFor(()->Hawk.get("theme_color",0)==3);
-        onMain(()->assertEquals(0xff008577,((com.google.android.material.bottomnavigation.BottomNavigationView)main.findViewById(R.id.bottom_nav)).getItemIconTintList().getColorForState(new int[]{android.R.attr.state_checked},0)));
         onMain(()->((android.widget.ScrollView)main.findViewById(R.id.my_scroll)).fullScroll(View.FOCUS_DOWN));Thread.sleep(250);capture("my-settings-bottom.png");
     }
     public void testModuleCachesClearAndDecoderSettingPersists() throws Exception {
@@ -281,7 +571,7 @@ public class FeatureRegressionTest extends InstrumentationTestCase {
             assertTrue(file.setReadOnly());
         }
         onMain(() -> main.findViewById(R.id.llModuleManager).performClick());
-        click(scrollTo("清除已下载的模块缓存"));
+        click(scrollTo("清除来源脚本缓存"));
         waitFor(() -> node("确认") != null);
         click(node("确认"));
         for (java.io.File root : roots) waitFor(() -> !new java.io.File(root, "cache-cleanup-regression.tmp").exists());
@@ -296,11 +586,19 @@ public class FeatureRegressionTest extends InstrumentationTestCase {
         waitFor(() -> node("软解码") != null);
         click(node("软解码"));
         waitFor(() -> "软解码".equals(Hawk.get(HawkConfig.IJK_CODEC, "")));
-        onMain(() -> main.findViewById(R.id.llSourceHistory).performClick());
-        waitFor(() -> node("已保存来源") != null);
-        assertNotNull(scrollTo("管理壁纸来源"));
-        capture("saved-sources.png");
-        click(node("×"));
+        onMain(() -> main.findViewById(R.id.llLiveApi).performClick());
+        waitFor(() -> node("从视频订阅选择") != null);
+        assertNotNull(node("添加来源"));
+        capture("saved-live-sources-direct.png");
+        click(node("完成"));
+    }
+    private boolean hasText(View view, String text) {
+        if (view instanceof android.widget.TextView && text.contentEquals(((android.widget.TextView)view).getText())) return true;
+        if (view instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup)view;
+            for (int i=0;i<group.getChildCount();i++) if(hasText(group.getChildAt(i),text)) return true;
+        }
+        return false;
     }
     private AccessibilityNodeInfo scrollTo(String text) throws Exception {
         for (int i = 0; i < 15; i++) {

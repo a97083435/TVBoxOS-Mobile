@@ -22,6 +22,9 @@
             android:gravity="end|center_vertical" android:maxLines="2" android:text="定时停止 · 未开启"
             android:textSize="12sp" android:textColor="@color/text_sub_foreground" android:foreground="?android:selectableItemBackground" />
     </LinearLayout>
+    <TextView android:id="@+id/live_core_playback_options" android:layout_width="match_parent" android:layout_height="48dp"
+        android:paddingHorizontal="20dp" android:gravity="center_vertical" android:text="画面／声音／同步设置 ›"
+        android:textSize="15sp" android:textColor="@color/text_foreground" android:foreground="?android:selectableItemBackground" />
     <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
         android:orientation="horizontal" android:baselineAligned="false">
     <com.owen.tvrecyclerview.widget.TvRecyclerView

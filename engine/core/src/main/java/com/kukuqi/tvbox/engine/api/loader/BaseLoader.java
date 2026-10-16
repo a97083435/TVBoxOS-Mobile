@@ -23,11 +23,13 @@ public class BaseLoader {
     private final JarLoader jarLoader;
     private final PyLoader pyLoader;
     private final JsLoader jsLoader;
+    private final NodeLoader nodeLoader;
 
     private BaseLoader() {
         jarLoader = new JarLoader();
         pyLoader = new PyLoader();
         jsLoader = new JsLoader();
+        nodeLoader = new NodeLoader();
     }
 
     public static BaseLoader get() {
@@ -52,10 +54,12 @@ public class BaseLoader {
         jarLoader.clear();
         pyLoader.clear();
         jsLoader.clear();
+        nodeLoader.clear();
     }
 
     public synchronized Spider getSpider(String key, String api, String ext, String jar) {
-        if (isPy(api)) return pyLoader.getSpider(key, api, ext);
+        if (NodeLoader.accepts(api)) return nodeLoader.getSpider(key, api, ext);
+        else if (isPy(api)) return pyLoader.getSpider(key, api, ext);
         else if (isJs(api)) return jsLoader.getSpider(key, api, ext, jar);
         else if (isCsp(api)) return jarLoader.getSpider(key, api, ext, jar);
         else return new SpiderNull();
@@ -70,7 +74,8 @@ public class BaseLoader {
     }
 
     public void setRecent(String key, String api, String jar) {
-        if (isJs(api)) jsLoader.setRecent(key);
+        if (NodeLoader.accepts(api)) nodeLoader.setRecent(key);
+        else if (isJs(api)) jsLoader.setRecent(key);
         else if (isPy(api)) pyLoader.setRecent(key);
         else if (isCsp(api)) jarLoader.setRecent(Crypto.md5(jar));
     }
@@ -78,6 +83,7 @@ public class BaseLoader {
     public Object[] proxy(Map<String, String> params) throws Exception {
         if (params.containsKey("siteKey")) return getSpider(params.get("siteKey")).proxy(params);
         if ("js".equals(params.get("do"))) return jsLoader.proxy(params);
+        if ("nodejs".equals(params.get("do")) || "node".equals(params.get("do"))) return nodeLoader.proxy(params);
         if ("py".equals(params.get("do"))) return pyLoader.proxy(params);
         return jarLoader.proxy(params);
     }

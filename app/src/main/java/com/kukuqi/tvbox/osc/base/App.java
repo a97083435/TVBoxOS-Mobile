@@ -43,6 +43,8 @@ public class App extends com.kukuqi.tvbox.engine.App {
     public void onCreate() {
         super.onCreate();
         instance = this;
+        // Runtime service has its own lifecycle and must not start a second web server/database.
+        if (com.kukuqi.tvbox.engine.runtime.NodeProcess.isRuntime(this)) return;
         initParams();
         com.orhanobut.logger.Logger.addLogAdapter(new com.orhanobut.logger.AndroidLogAdapter(
                 com.orhanobut.logger.PrettyFormatStrategy.newBuilder().methodCount(0).showThreadInfo(false).tag("TVboxCore").build()));
@@ -77,9 +79,10 @@ public class App extends com.kukuqi.tvbox.engine.App {
     private void initParams() {
         // Hawk
         com.orhanobut.hawk.HawkCompat.init(this);
+        com.kukuqi.tvbox.osc.util.RuntimeDownload.migrateCatalog();
         Hawk.put(HawkConfig.DEBUG_OPEN, false);
 
-        putDefault(HawkConfig.HOME_REC, 0);                  //推荐: 0=豆瓣热播, 1=站点推荐
+        com.kukuqi.tvbox.osc.util.HomeRecommendationSettings.migrate(); // 1=站点推荐, 2=关闭；旧模式自动迁移
         putDefault(HawkConfig.PLAY_TYPE, 2);                 //播放器: 0=系统, 1=IJK, 2=Exo
         putDefault(HawkConfig.IJK_CODEC, "硬解码");           //IJK解码: 软解码, 硬解码
         putDefault(HawkConfig.BACKGROUND_PLAY_TYPE,2);           //后台播放: 0 关闭,1 开启,2 画中画

@@ -1,12 +1,9 @@
 package com.kukuqi.tvbox.osc.ui.fragment;
 
-import android.content.Intent;
 import android.content.res.Configuration;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.view.View;
-import android.view.animation.BounceInterpolator;
-import android.widget.LinearLayout;
 
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -17,39 +14,14 @@ import com.kukuqi.tvbox.osc.R;
 import com.kukuqi.tvbox.osc.api.ApiConfig;
 import com.kukuqi.tvbox.osc.base.BaseLazyFragment;
 import com.kukuqi.tvbox.osc.bean.Movie;
-import com.kukuqi.tvbox.osc.bean.VodInfo;
-import com.kukuqi.tvbox.osc.cache.RoomDataManger;
-import com.kukuqi.tvbox.osc.event.ServerEvent;
-import com.kukuqi.tvbox.osc.ui.activity.CollectActivity;
 import com.kukuqi.tvbox.osc.ui.activity.DetailActivity;
 import com.kukuqi.tvbox.osc.ui.activity.FastSearchActivity;
-import com.kukuqi.tvbox.osc.ui.activity.HistoryActivity;
-import com.kukuqi.tvbox.osc.ui.activity.LiveActivity;
 
-import com.kukuqi.tvbox.osc.ui.activity.SettingActivity;
 import com.kukuqi.tvbox.osc.ui.adapter.GridAdapter;
-import com.kukuqi.tvbox.osc.util.FastClickCheckUtil;
-import com.kukuqi.tvbox.osc.util.HawkConfig;
-import com.kukuqi.tvbox.osc.util.UA;
 import com.kukuqi.tvbox.osc.util.Utils;
-import com.google.gson.Gson;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.lzy.okgo.OkGo;
-import com.lzy.okgo.callback.AbsCallback;
-import com.lzy.okgo.model.Response;
-import com.orhanobut.hawk.Hawk;
-import com.owen.tvrecyclerview.widget.TvRecyclerView;
-import com.owen.tvrecyclerview.widget.V7GridLayoutManager;
-import com.owen.tvrecyclerview.widget.V7LinearLayoutManager;
 
-import org.greenrobot.eventbus.EventBus;
-import org.greenrobot.eventbus.Subscribe;
-import org.greenrobot.eventbus.ThreadMode;
 
 import java.util.ArrayList;
-import java.util.Calendar;
 import java.util.List;
 
 /**
@@ -59,6 +31,7 @@ import java.util.List;
  */
 public class UserFragment extends BaseLazyFragment {
 
+    private android.widget.TextView recommendationStatus;
     private GridAdapter homeHotVodAdapter;
     private List<Movie.Video> homeSourceRec;
     RecyclerView tvHotList1;
@@ -98,6 +71,8 @@ public class UserFragment extends BaseLazyFragment {
     @Override
     protected void init() {
         tvHotList1 = findViewById(R.id.tvHotList1);
+        recommendationStatus = findViewById(R.id.homeRecommendationStatus);
+        recommendationStatus.setOnClickListener(v -> refreshContent());
         swipeRefresh = findViewById(R.id.swipeRefresh);
         BrowseControls.attach(this, swipeRefresh, findViewById(R.id.btn_live), tvHotList1,
                 () -> tvHotList1, this::refreshContent, null);
@@ -145,115 +120,24 @@ public class UserFragment extends BaseLazyFragment {
     }
 
     private void initHomeHotVod(GridAdapter adapter) {
-        if (Hawk.get(HawkConfig.HOME_REC, 0) == 1) {
-            if (homeSourceRec != null && homeSourceRec.size() > 0) {
-                showSuccess();
-                adapter.setNewData(homeSourceRec);
-            }else {
-                showEmpty();
-            }
-            swipeRefresh.setRefreshing(false);
-            return;
-        }
-        try {
-            Calendar cal = Calendar.getInstance();
-            int year = cal.get(Calendar.YEAR);
-            int month = cal.get(Calendar.MONTH) + 1;
-            int day = cal.get(Calendar.DATE);
-            String today = String.format("%d%d%d", year, month, day);
-            String requestDay = Hawk.get("home_hot_day", "");
-            if (requestDay.equals(today)) {
-                String json = Hawk.get("home_hot", "");
-                if (!json.isEmpty()) {
-                    ArrayList<Movie.Video> hotMovies = loadHots(json);
-                    if (hotMovies != null && hotMovies.size() > 0) {
-                        showSuccess();
-                        adapter.setNewData(hotMovies);
-                        swipeRefresh.setRefreshing(false);
-                        return;
-                    }
-                }
-            }
-            String doubanUrl = "https://movie.douban.com/j/new_search_subjects?sort=U&range=0,10&tags=&playable=1&start=0&year_range=" + year + "," + year;
-            OkGo.<String>get(doubanUrl)
-                    .tag(this)
-                    .headers("User-Agent", UA.randomOne())
-                    .execute(new AbsCallback<String>() {
-                        @Override
-                        public void onSuccess(Response<String> response) {
-                            if (!isAdded() || mActivity.isDestroyed()) return;
-                            String netJson = response.body();
-                            Hawk.put("home_hot_day", today);
-                            Hawk.put("home_hot", netJson);
-                            mActivity.runOnUiThread(new Runnable() {
-                                @Override
-                                public void run() {
-                                    ArrayList<Movie.Video> videos = loadHots(netJson);
-                                    swipeRefresh.setRefreshing(false);
-                                    if (videos.size()>0){
-                                        showSuccess();
-                                        adapter.setNewData(videos);
-                                    }else {
-                                        showEmpty();
-                                    }
-                                }
-                            });
-                        }
+        boolean available = homeSourceRec != null && !homeSourceRec.isEmpty();
+        adapter.setNewData(available ? homeSourceRec : new ArrayList<>());
+        if (available) showSuccess(); else showEmpty();
+        status(available ? "" : "当前站点没有提供首页推荐，可更换站点；点击重试");
+        swipeRefresh.setRefreshing(false);
+    }
 
-                        @Override public void onError(Response<String> response) {
-                            if (!isAdded()) return;
-                            swipeRefresh.setRefreshing(false);
-                            if (adapter.getData().isEmpty()) showEmpty();
-                            ToastUtils.showShort("刷新失败，请稍后重试");
-                        }
-
-                        @Override
-                        public String convertResponse(okhttp3.Response response) throws Throwable {
-                            return response.body().string();
-                        }
-                    });
-        } catch (Throwable th) {
-            swipeRefresh.setRefreshing(false);
-            th.printStackTrace();
-            if (adapter.getData().isEmpty()){
-                showEmpty();
-            }
-        }
+    private void status(String message) {
+        recommendationStatus.setText(message);
+        recommendationStatus.setVisibility(message.isEmpty() ? View.GONE : View.VISIBLE);
     }
 
     private void refreshContent() {
-        if (Hawk.get(HawkConfig.HOME_REC, 0) == 1) {
-            if (ApiConfig.get().getHomeSourceBean() == null) { swipeRefresh.setRefreshing(false); return; }
-            recommendations.getSort(ApiConfig.get().getHomeSourceBean().getKey());
-        } else {
-            Hawk.delete("home_hot_day");
-            OkGo.getInstance().cancelTag(this);
-            initHomeHotVod(homeHotVodAdapter);
+        if (ApiConfig.get().getHomeSourceBean() == null) {
+            status("请先添加订阅并选择站点");
+            swipeRefresh.setRefreshing(false);
+            return;
         }
-    }
-
-    @Override public void onDestroy() {
-        OkGo.getInstance().cancelTag(this);
-        super.onDestroy();
-    }
-
-    private ArrayList<Movie.Video> loadHots(String json) {
-        ArrayList<Movie.Video> result = new ArrayList<>();
-        try {
-            JsonObject infoJson = new Gson().fromJson(json, JsonObject.class);
-            JsonArray array = infoJson.getAsJsonArray("data");
-            for (JsonElement ele : array) {
-                JsonObject obj = (JsonObject) ele;
-                Movie.Video vod = new Movie.Video();
-                vod.name = obj.get("title").getAsString();
-                vod.note = obj.get("rate").getAsString();
-                if (!vod.note.isEmpty()) vod.note += " 分";
-                vod.pic = obj.get("cover").getAsString() + "@Referer=https://movie.douban.com/@User-Agent=" + UA.random();
-                result.add(vod);
-            }
-        } catch (Throwable th) {
-
-        }
-        return result;
+        recommendations.getSort(ApiConfig.get().getHomeSourceBean().getKey());
     }
 }

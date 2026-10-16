@@ -19,6 +19,9 @@ public class MpvPlayerEngine implements PlayerEngine, Player.Listener {
     private final MpvPlayerEffect effect;
     private final MpvPlayer player;
     private PlaySpec spec;
+    private int generation;
+    private boolean released;
+    private static final java.util.concurrent.ExecutorService discWorker = java.util.concurrent.Executors.newSingleThreadExecutor();
 
     public MpvPlayerEngine(int decode, Player.Listener listener) {
         this.player = MpvUtil.buildPlayer(decode, listener);
@@ -54,6 +57,7 @@ public class MpvPlayerEngine implements PlayerEngine, Player.Listener {
 
     @Override
     public void release() {
+        released = true; generation++;
         player.removeListener(this);
         player.setAudioOutputListener(null);
         player.release();
@@ -85,7 +89,23 @@ public class MpvPlayerEngine implements PlayerEngine, Player.Listener {
     @Override
     public void start(PlaySpec spec, long startPositionMs) {
         this.spec = spec;
-        startInternal(startPositionMs);
+        int request = ++generation;
+        if (com.kukuqi.tvbox.engine.runtime.BdjSupport.shouldPrepare(spec.getUrl())) {
+            discWorker.execute(() -> {
+                try {
+                    com.kukuqi.tvbox.engine.runtime.BdjSupport.prepare();
+                    com.kukuqi.tvbox.engine.App.post(() -> { if (!released && generation == request) startInternal(startPositionMs); });
+                } catch (Throwable failure) {
+                    com.kukuqi.tvbox.engine.App.post(() -> {
+                        if (!released && generation == request) {
+                            android.widget.Toast.makeText(com.kukuqi.tvbox.engine.App.get(), "BD-J 加载失败：" + failure.getMessage(), android.widget.Toast.LENGTH_LONG).show();
+                            // Main-title playback remains possible without Java menus.
+                            if (!spec.getUrl().contains("://menu/")) startInternal(startPositionMs);
+                        }
+                    });
+                }
+            });
+        } else startInternal(startPositionMs);
     }
 
     private void startInternal(long startPositionMs) {
@@ -102,6 +122,7 @@ public class MpvPlayerEngine implements PlayerEngine, Player.Listener {
 
     @Override
     public void stop() {
+        generation++;
         player.stop();
     }
 

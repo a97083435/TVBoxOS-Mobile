@@ -11,18 +11,14 @@ import java.util.List;
 /** Public trending titles, cached independently of private search history. */
 public final class HotSearch {
     public interface Result { void ready(List<String> words, String status); }
-    private static final String[] URLS = {
-        "https://movie.douban.com/j/search_subjects?type=movie&tag=%E7%83%AD%E9%97%A8&sort=recommend&page_limit=20&page_start=0",
-        "https://movie.douban.com/j/search_subjects?type=tv&tag=%E7%83%AD%E9%97%A8&sort=recommend&page_limit=20&page_start=0"
-    };
+    private static final String URL = "https://api.web.360kan.com/v1/rank?cat=1";
     private HotSearch() {}
     public static List<String> parse(String content) {
         LinkedHashSet<String> words = new LinkedHashSet<>();
         JsonElement root = JsonParser.parseString(content);
         if (root.isJsonObject()) {
             JsonObject object = root.getAsJsonObject();
-            if (object.has("subjects")) root = object.get("subjects");
-            else if (object.has("data")) {
+            if (object.has("data")) {
                 root = object.get("data");
                 if (root.isJsonObject()) root = root.getAsJsonObject().getAsJsonObject("mapResult").getAsJsonObject("0").get("listInfo");
             }
@@ -39,22 +35,20 @@ public final class HotSearch {
         List<String> cache = cached();
         if (!cache.isEmpty()) result.ready(cache, "上次热门 · 点击刷新");
         if (!force && !cache.isEmpty() && System.currentTimeMillis() - Hawk.get("hot_search_time", 0L) < 6 * 60 * 60 * 1000L) return;
-        fetch(0, cache, result);
+        fetch(cache, result);
     }
     private static List<String> cached() {
         try { return parse(Hawk.get("hot_search_cache", "[]")); } catch (Exception ignored) { return new ArrayList<>(); }
     }
-    private static void fetch(int index, List<String> cache, Result result) {
-        SourceManager.read(URLS[index], (content, error) -> {
+    private static void fetch(List<String> cache, Result result) {
+        SourceManager.read(URL, java.util.Collections.singletonMap("Referer", "https://www.360kan.com/rank/general"), (content, error) -> {
             List<String> words = new ArrayList<>();
             try { if (content != null) words = parse(content); } catch (Exception ignored) {}
             if (!words.isEmpty()) {
                 Hawk.put("hot_search_cache", new com.google.gson.Gson().toJson(words)); Hawk.put("hot_search_time", System.currentTimeMillis());
                 result.ready(words, "热门搜索 · 点击刷新");
-            } else if (index + 1 < URLS.length) fetch(index + 1, cache, result);
-            else {
-                if (cache.isEmpty()) { try { cache.addAll(parse(Hawk.get("home_hot", "[]"))); } catch (Exception ignored) {} }
-                result.ready(cache, cache.isEmpty() ? "热门搜索暂时不可用 · 点击重试" : "网络不可用，展示上次热门 · 点击重试");
+            } else {
+                result.ready(cache, cache.isEmpty() ? (error.contains("403") ? "热门榜单访问受限，可直接输入片名搜索 · 点击重试" : "热门词暂不可用，可直接输入片名搜索 · 点击重试") : "热门词刷新失败，展示上次热门 · 点击重试");
             }
         });
     }

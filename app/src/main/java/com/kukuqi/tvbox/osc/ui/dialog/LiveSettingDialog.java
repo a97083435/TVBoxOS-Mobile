@@ -58,6 +58,7 @@ public class LiveSettingDialog extends BottomPopupView {
         super.onCreate();
         mBinding = DialogLiveSettingBinding.bind(getPopupImplView());
         mBinding.liveSettingEpg.setOnClickListener(v -> dismissWith(mActivity::showEpgGuide));
+        mBinding.liveCorePlaybackOptions.setOnClickListener(v -> dismissWith(mActivity::showCorePlaybackOptions));
         com.kukuqi.tvbox.osc.player.SleepTimer.bind(mBinding.liveSettingSleepTimer);
         initSettingGroupView();
         initSettingItemView();

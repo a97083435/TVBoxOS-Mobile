@@ -19,8 +19,9 @@ public class FeatureCompatibilityTest {
     }
     @Test public void hotWordsKeepCompleteTitlesAndDeduplicate() {
         assertEquals(java.util.Arrays.asList("庆余年 第二季", "三体"), HotSearch.parse("{\"data\":{\"mapResult\":{\"0\":{\"listInfo\":[{\"title\":\"《庆余年 第二季》\"},{\"title\":\"<b>三体</b>\"},{\"title\":\"三体\"}]}}}}"));
-        assertEquals(java.util.Arrays.asList("三体"), HotSearch.parse("{\"subjects\":[{\"title\":\"三体\"}]}"));
-        assertTrue(HotSearch.parse("{\"subjects\":[]}").isEmpty());
+        assertEquals(java.util.Arrays.asList("三体"), HotSearch.parse("[\"三体\",\"三体\"]"));
+        assertEquals(java.util.Arrays.asList("庆余年 第二季", "三体"), HotSearch.parse("{\"data\":[{\"title\":\"庆余年 第二季\"},{\"title\":\"三体\"}]}"));
+        assertTrue(HotSearch.parse("{\"data\":[]}").isEmpty());
     }
     @Test public void cleanerDeletesNestedCacheAndKeepsRoot() throws Exception {
         File root = Files.createTempDirectory("tvbox-cache").toFile();

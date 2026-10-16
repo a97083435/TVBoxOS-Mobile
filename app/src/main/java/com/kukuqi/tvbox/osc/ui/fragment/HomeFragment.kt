@@ -141,7 +141,7 @@ class HomeFragment : BaseVbFragment<FragmentHomeBinding>() {
         when{
             dataInitOk && jarInitOk -> {
                 //正常初始化会先加载,最终到这,此时数据有以下几种情况
-                // 1. api/jar/spider等均加载完,正常显示数据。2. 缺失spider(存疑?)/api配置有问题同样加载(最后空布局 或 只有豆瓣首页)
+                // 1. api/jar/spider等均加载完,正常显示数据。2. 缺失spider(存疑?)/api配置有问题同样加载(最后显示站点推荐为空的提示)
                 sourceViewModel?.getSort(ApiConfig.get().homeSourceBean.key)
             }
             dataInitOk && !jarInitOk -> {
@@ -265,21 +265,13 @@ class HomeFragment : BaseVbFragment<FragmentHomeBinding>() {
             fragments.clear()
             for (data in mSortDataList) {
                 mBinding.tabLayout.addView(getTabTextView(data.name))
-                if (data.id == "my0") { //tab是主页,添加主页fragment 根据设置项显示豆瓣热门/站点推荐(每个源不一样)/历史记录
-                    if (Hawk.get(
-                            HawkConfig.HOME_REC,
-                            0
-                        ) == 1 && absXml != null && absXml.videoList != null && absXml.videoList.size > 0
-                    ) { //站点推荐
-                        fragments.add(UserFragment.newInstance(absXml.videoList))
-                    } else { //豆瓣热门/历史记录
-                        fragments.add(UserFragment.newInstance(null))
-                    }
+                if (data.id == "my0") { // 当前站点的首页推荐
+                    fragments.add(UserFragment.newInstance(absXml?.videoList))
                 } else { //来自源的分类
                     fragments.add(GridFragment.newInstance(data))
                 }
             }
-            if (Hawk.get(HawkConfig.HOME_REC, 0) == 2) { //关闭主页
+            if (Hawk.get(HawkConfig.HOME_REC, 1) == 2) { //关闭主页
                 mBinding.tabLayout.removeViewAt(0)
                 fragments.removeAt(0)
             }

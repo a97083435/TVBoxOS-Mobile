@@ -19,6 +19,18 @@
             android:orientation="vertical">
 
             <TextView
+                android:id="@+id/core_playback_options"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="12dp"
+                android:paddingHorizontal="12dp"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_r_common_stroke_primary"
+                android:text="清晰度／章节／画面与声音 ›"
+                android:textColor="@color/text_foreground"
+                android:textSize="15sp" />
+
+            <TextView
                 android:id="@+id/sleep_timer"
                 android:layout_width="match_parent"
                 android:layout_height="48dp"

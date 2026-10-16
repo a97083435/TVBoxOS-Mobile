@@ -32,7 +32,7 @@ class MainActivity : BaseVbActivity<ActivityMainBinding>() {
     private var sourceUrl = Hawk.get(HawkConfig.API_URL, "")
     private val posterSize = Hawk.get("poster_size", 2)
     private val homeSite = Hawk.get(HawkConfig.HOME_API, "")
-    private val homeRec = Hawk.get(HawkConfig.HOME_REC, 0)
+    private val homeRec = Hawk.get(HawkConfig.HOME_REC, 1)
     private val dnsOpt = Hawk.get(HawkConfig.DOH_URL, 0)
     private var exitTime = 0L
     var useCacheConfig = false
@@ -54,7 +54,7 @@ class MainActivity : BaseVbActivity<ActivityMainBinding>() {
             when (it.itemId) {
                 R.id.navigation_home -> {
                     mBinding.vp.setCurrentItem(0, false)
-                    if (posterSize != Hawk.get("poster_size", 2) || homeSite != Hawk.get(HawkConfig.HOME_API, "") || homeRec != Hawk.get(HawkConfig.HOME_REC, 0) || dnsOpt != Hawk.get(HawkConfig.DOH_URL, 0)) {
+                    if (posterSize != Hawk.get("poster_size", 2) || homeSite != Hawk.get(HawkConfig.HOME_API, "") || homeRec != Hawk.get(HawkConfig.HOME_REC, 1) || dnsOpt != Hawk.get(HawkConfig.DOH_URL, 0)) {
                         intent.putExtra(IntentKey.CACHE_CONFIG_CHANGED, true)
                         intent.putExtra(EXTRA_START_DESTINATION, R.id.navigation_home)
                         recreate()
@@ -117,7 +117,7 @@ class MainActivity : BaseVbActivity<ActivityMainBinding>() {
             intent.removeExtra(IntentKey.CACHE_CONFIG_CHANGED)
             intent.putExtra(EXTRA_START_DESTINATION, mBinding.bottomNav.root.selectedItemId)
             recreate()
-        } else if (posterSize != Hawk.get("poster_size", 2) || homeSite != Hawk.get(HawkConfig.HOME_API, "") || homeRec != Hawk.get(HawkConfig.HOME_REC, 0) || dnsOpt != Hawk.get(HawkConfig.DOH_URL, 0)) {
+        } else if (posterSize != Hawk.get("poster_size", 2) || homeSite != Hawk.get(HawkConfig.HOME_API, "") || homeRec != Hawk.get(HawkConfig.HOME_REC, 1) || dnsOpt != Hawk.get(HawkConfig.DOH_URL, 0)) {
             intent.putExtra(IntentKey.CACHE_CONFIG_CHANGED, true)
             intent.putExtra(EXTRA_START_DESTINATION, mBinding.bottomNav.root.selectedItemId)
             recreate()

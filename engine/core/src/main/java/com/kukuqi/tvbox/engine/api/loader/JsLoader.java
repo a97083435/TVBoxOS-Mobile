@@ -1,8 +1,8 @@
 package com.kukuqi.tvbox.engine.api.loader;
 
 import com.kukuqi.tvbox.engine.App;
-import com.kukuqi.tvbox.engine.quickjs.crawler.Loader;
-import com.kukuqi.tvbox.engine.quickjs.utils.Module;
+import com.kukuqi.tvbox.engine.runtime.RuntimeModule;
+import com.kukuqi.tvbox.engine.runtime.RuntimeModules;
 import com.github.catvod.crawler.Spider;
 import com.github.catvod.crawler.SpiderNull;
 
@@ -12,17 +12,16 @@ import java.util.concurrent.ConcurrentHashMap;
 public class JsLoader {
 
     private final ConcurrentHashMap<String, Spider> spiders;
-    private final Loader loader;
+    private Object loader;
     private volatile String recent;
 
     public JsLoader() {
         spiders = new ConcurrentHashMap<>();
-        loader = new Loader();
     }
 
     public void clear() {
         spiders.values().forEach(Spider::destroy);
-        Module.get().clear();
+        if (loader != null) try { RuntimeModules.call(loader, "clear", new Class<?>[0]); } catch (Exception e) { e.printStackTrace(); }
         spiders.clear();
         recent = null;
     }
@@ -32,9 +31,11 @@ public class JsLoader {
     }
 
     public Spider getSpider(String key, String api, String ext, String jar) {
+        RuntimeModules.loader(App.get(), RuntimeModule.QUICKJS);
+        if (loader == null) loader = RuntimeModules.create(App.get(), RuntimeModule.QUICKJS);
         return spiders.computeIfAbsent(key, k -> {
             try {
-                Spider spider = loader.spider(api, BaseLoader.get().dex(jar));
+                Spider spider = (Spider) RuntimeModules.call(loader, "spider", new Class<?>[]{String.class, dalvik.system.DexClassLoader.class}, api, BaseLoader.get().dex(jar));
                 spider.siteKey = key;
                 spider.init(App.get(), ext);
                 return spider;

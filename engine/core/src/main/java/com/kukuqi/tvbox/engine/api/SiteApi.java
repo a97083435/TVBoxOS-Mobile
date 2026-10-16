@@ -30,6 +30,7 @@ import java.util.Map;
 import java.util.Objects;
 
 import okhttp3.Call;
+import okhttp3.HttpUrl;
 import okhttp3.Response;
 
 public class SiteApi {
@@ -38,8 +39,18 @@ public class SiteApi {
 
     public static String call(@NonNull Site site, @NonNull ArrayMap<String, String> params) throws IOException {
         if (!site.getExt().isEmpty()) params.put("extend", site.getExt());
-        Call call = site.getExt().length() <= 1000 ? OkHttp.newCall(site.getApi(), site.getHeader(), params) : OkHttp.newCall(site.getApi(), site.getHeader(), OkHttp.toBody(params));
+        String api = site.getApi();
+        if (site.getType() <= 2) {
+            HttpUrl parsed = HttpUrl.parse(api);
+            if (parsed == null) throw new IOException("采集接口地址无效");
+            HttpUrl.Builder builder = parsed.newBuilder();
+            for (String key : params.keySet()) builder.removeAllQueryParameters(key);
+            api = builder.build().toString();
+        }
+        Call call = site.getExt().length() <= 1000 ? OkHttp.newCall(api, site.getHeader(), params) : OkHttp.newCall(api, site.getHeader(), OkHttp.toBody(params));
         try (Response response = call.execute()) {
+            if (!response.isSuccessful() || response.body() == null)
+                throw new IOException("采集接口请求失败：HTTP " + response.code());
             return response.body().string();
         }
     }
@@ -76,14 +87,12 @@ public class SiteApi {
             setTypes(site, result);
             return result;
         } else {
-            try (Response response = OkHttp.newCall(site.getApi(), site.getHeader()).execute()) {
-                String homeContent = response.body().string();
-                SpiderDebug.log("home", homeContent);
-                Result result = Result.fromType(site.getType(), homeContent);
-                fetchPic(site, result);
-                setTypes(site, result);
-                return result;
-            }
+            String homeContent = call(site, new ArrayMap<>());
+            SpiderDebug.log("home", homeContent);
+            Result result = Result.fromType(site.getType(), homeContent);
+            fetchPic(site, result);
+            setTypes(site, result);
+            return result;
         }
     }
 
@@ -203,7 +212,8 @@ public class SiteApi {
             params.put("wd", keyword);
             params.put("quick", String.valueOf(quick));
             params.put("extend", "");
-            if (hasPage) params.put("pg", page);
+            if (site.getType() <= 2) params.put("ac", ac(site.getType()));
+            if (hasPage || site.getType() <= 2) params.put("pg", page);
             String searchContent = call(site, params);
             SpiderDebug.log("search", searchContent);
             Result result = fetchPic(site, Result.fromType(site.getType(), searchContent));
@@ -223,18 +233,24 @@ public class SiteApi {
 
     @NonNull
     public static Result fetchPic(@NonNull Site site, @NonNull Result result) throws Exception {
-        if (site.getType() > 2 || result.getList().isEmpty() || !result.getVod().getPic().isEmpty()) return result;
+        if (site.getType() > 2 || result.getList().isEmpty()) return result;
         ArrayList<String> ids = new ArrayList<>();
-        boolean empty = site.getCategories().isEmpty();
-        for (Vod item : result.getList()) if (empty || site.getCategories().contains(item.getTypeName())) ids.add(item.getId());
-        if (ids.isEmpty()) return result.clear();
+        for (Vod item : result.getList()) if (item.getPic().isEmpty() && !item.getId().isEmpty()) ids.add(item.getId());
+        if (ids.isEmpty()) return result;
         ArrayMap<String, String> params = new ArrayMap<>();
         params.put("ac", ac(site.getType()));
         params.put("ids", TextUtils.join(",", ids));
-        try (Response response = OkHttp.newCall(site.getApi(), site.getHeader(), params).execute()) {
-            result.setList(Result.fromType(site.getType(), response.body().string()).getList());
-            return result;
+        try {
+            Map<String, Vod> details = new HashMap<>();
+            for (Vod item : Result.fromType(site.getType(), call(site, params)).getList()) details.put(item.getId(), item);
+            for (Vod item : result.getList()) {
+                Vod detail = details.get(item.getId());
+                if (detail != null) item.checkPic(detail.getPic());
+            }
+        } catch (IOException | IllegalArgumentException unavailable) {
+            android.util.Log.w("SiteApi", "图片补全失败，保留原始采集列表");
         }
+        return result;
     }
 
     private static void setTypes(@NonNull Site site, @NonNull Result result) {

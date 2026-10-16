@@ -655,9 +655,10 @@ public class LocalVideoController extends BaseController {
     private void showPlaybackSettings() {
         new androidx.appcompat.app.AlertDialog.Builder(getContext()).setTitle("播放设置")
                 .setItems(new String[]{"播放倍速 · " + com.kukuqi.tvbox.osc.player.PlaybackSpeed.format(getConfiguredSpeed()),
-                        com.kukuqi.tvbox.osc.player.SleepTimer.get().description()}, (dialog, which) -> {
+                        com.kukuqi.tvbox.osc.player.SleepTimer.get().description(), "章节／版本／画面与声音"}, (dialog, which) -> {
                     if (which == 0) showSpeedDialog();
-                    else com.kukuqi.tvbox.osc.ui.dialog.SleepTimerDialog.show(getContext());
+                    else if (which == 1) com.kukuqi.tvbox.osc.ui.dialog.SleepTimerDialog.show(getContext());
+                    else if (listener != null) listener.morePlaybackOptions();
                 }).setNegativeButton("关闭", null).show();
     }
 
@@ -692,6 +693,7 @@ public class LocalVideoController extends BaseController {
     }
 
     public interface VodControlListener {
+        void morePlaybackOptions();
 
         void chooseSeries();
         void playNext(boolean rmProgress);

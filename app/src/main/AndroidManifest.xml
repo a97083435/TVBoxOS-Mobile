@@ -3,6 +3,17 @@
     >
     <!-- 在 Android 11 中，应用程序需要声明它们要使用的其他应用程序的包名 -->
     <queries>
+        <package android:name="com.kukuqi.tvbox.runtime.nodejs" />
+        <package android:name="com.kukuqi.tvbox.runtime.nodejs.corevalidation" />
+        <package android:name="com.kukuqi.tvbox.runtime.bdj" />
+        <package android:name="com.kukuqi.tvbox.runtime.bdj.corevalidation" />
+        <package android:name="com.kukuqi.tvbox.runtime.python" />
+        <package android:name="com.kukuqi.tvbox.runtime.python.corevalidation" />
+        <package android:name="com.kukuqi.tvbox.runtime.quickjs" />
+        <package android:name="com.kukuqi.tvbox.runtime.quickjs.corevalidation" />
+        <package android:name="com.kukuqi.tvbox.runtime.thunder" />
+        <package android:name="com.kukuqi.tvbox.runtime.thunder.corevalidation" />
+
         <package android:name="idm.internet.download.manager.plus" />
     </queries>
 
@@ -31,6 +42,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
+        android:allowNativeHeapPointerTagging="false"
         android:name=".base.App"
         android:allowBackup="true"
         android:configChanges="orientation|keyboardHidden|screenSize"

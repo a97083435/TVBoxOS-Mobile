@@ -15,6 +15,9 @@
                 android:layout_marginTop="6dp" android:textColor="@color/text_foreground" android:textSize="14sp"
                 android:textIsSelectable="true" />
         </LinearLayout>
+        <TextView android:id="@+id/source_playlist" android:layout_width="match_parent" android:layout_height="48dp"
+            android:gravity="center_vertical" android:textColor="@color/text_foreground" android:visibility="gone"
+            android:textSize="14sp" android:foreground="?android:selectableItemBackground" />
         <View android:layout_width="match_parent" android:layout_height="1dp" android:layout_marginTop="8dp" android:background="@color/light_gray_color" />
         <LinearLayout android:layout_width="match_parent" android:layout_height="48dp" android:gravity="center_vertical" android:orientation="horizontal">
             <TextView android:id="@+id/source_saved_title" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"

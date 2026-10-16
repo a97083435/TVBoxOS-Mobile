@@ -141,6 +141,10 @@ public class LocalPlayActivity extends BaseVbActivity<ActivityLocalPlayBinding> 
         mController = new LocalVideoController(this);
         mController.setListener(new LocalVideoController.VodControlListener() {
 
+            @Override public void morePlaybackOptions() {
+                com.kukuqi.tvbox.osc.ui.dialog.FeatureSettingsDialog.corePlayback(LocalPlayActivity.this, mVideoView);
+            }
+
             @Override
             public void chooseSeries() {
                 showAllSeriesDialog();

@@ -14,23 +14,37 @@ import android.view.WindowManager;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.TextView;
+import android.widget.Toast;
+import androidx.media3.common.C;
+import androidx.media3.common.MediaChapter;
+import androidx.media3.common.MediaEdition;
+import com.kukuqi.tvbox.engine.bean.Result;
+import com.kukuqi.tvbox.engine.player.PlayerManager;
+import com.kukuqi.tvbox.engine.player.effect.audio.AudioEffectBands;
+import com.kukuqi.tvbox.engine.player.effect.audio.AudioEffectPreset;
+import com.kukuqi.tvbox.engine.player.effect.video.VideoEffectPreset;
+import com.kukuqi.tvbox.engine.player.effect.video.VideoEffectProfile;
+import com.kukuqi.tvbox.engine.player.mpv.MpvConfigFile;
+import com.kukuqi.tvbox.engine.setting.AudioSetting;
+import com.kukuqi.tvbox.engine.setting.PlayerSetting;
+import com.kukuqi.tvbox.engine.setting.SubtitleSetting;
+import com.kukuqi.tvbox.engine.setting.VideoSetting;
 import com.kukuqi.tvbox.osc.R;
 import com.kukuqi.tvbox.osc.api.ApiConfig;
-import com.kukuqi.tvbox.osc.bean.SourceBean;
-import com.kukuqi.tvbox.osc.bean.Subscription;
-import com.kukuqi.tvbox.osc.event.SourceChangedEvent;
-import com.kukuqi.tvbox.osc.ui.settings.ThemeColors;
+import com.kukuqi.tvbox.osc.player.CorePlayer;
+import com.kukuqi.tvbox.osc.player.MyVideoView;
 import com.kukuqi.tvbox.osc.util.HawkConfig;
-import com.kukuqi.tvbox.osc.util.PlayerHelper;
 import com.kukuqi.tvbox.osc.util.Utils;
 import com.orhanobut.hawk.Hawk;
-import org.greenrobot.eventbus.EventBus;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.DoubleConsumer;
 import java.util.function.IntConsumer;
 import java.util.function.IntSupplier;
 
@@ -131,7 +145,7 @@ public final class FeatureSettingsDialog {
             });
             option.setSelected(i == checked);
             if (i == checked) {
-                option.setTextColor(ThemeColors.color(activity));
+                option.setTextColor(activity.getColor(R.color.colorPrimary));
                 option.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
                 option.setCompoundDrawablesWithIntrinsicBounds(0, 0, android.R.drawable.checkbox_on_background, 0);
             }
@@ -141,28 +155,200 @@ public final class FeatureSettingsDialog {
     public static void actions(Activity activity, String title, String[] names, IntConsumer onSelect) {
         select(activity, title, names, -1, onSelect);
     }
-    public static void sourceHistory(Activity activity, Runnable manageVod, Runnable manageLive, Runnable manageWallpaper) {
-        FeatureSettingsDialog panel = new FeatureSettingsDialog(activity, "已保存来源");
-        panel.row("选择和切换来源请进入下方管理页面", null);
-        String currentVod = Hawk.get(HawkConfig.API_URL, "");
-        ArrayList<Subscription> vod = Hawk.get(HawkConfig.SUBSCRIPTIONS, new ArrayList<>());
-        panel.row("点播来源 · " + vod.size(), null);
-        for (Subscription item : vod) {
-            if (item == null || item.getUrl() == null || item.getUrl().trim().isEmpty()) continue;
-            panel.row(item.getName() + (item.getUrl().equals(currentVod) ? " · 当前" : ""), null);
+
+    public static void corePlayback(Activity activity, MyVideoView view) {
+        if (!(view.getMediaPlayer() instanceof CorePlayer)) {
+            Toast.makeText(activity, "请先开始播放", Toast.LENGTH_SHORT).show();
+            return;
         }
-        int[] kinds = {com.kukuqi.tvbox.osc.util.SourceLibrary.LIVE, com.kukuqi.tvbox.osc.util.SourceLibrary.WALLPAPER};
-        String[] labels = {"直播来源", "壁纸来源"};
-        String[] selected = {Hawk.get(HawkConfig.LIVE_URL, ""), com.kukuqi.tvbox.osc.util.WallpaperManager.get().getSelectionValue()};
-        for (int i = 0; i < kinds.length; i++) {
-            ArrayList<com.kukuqi.tvbox.osc.util.SourceLibrary.Entry> entries = com.kukuqi.tvbox.osc.util.SourceLibrary.list(kinds[i]);
-            panel.row(labels[i] + " · " + entries.size(), null);
-            for (com.kukuqi.tvbox.osc.util.SourceLibrary.Entry item : entries)
-                panel.row(item.name + (item.url.equals(selected[i]) ? " · 当前" : ""), null);
+        CorePlayer core = (CorePlayer) view.getMediaPlayer();
+        PlayerManager manager = core.manager();
+        if (manager == null || manager.isReleased()) return;
+        BooleanSupplier active = () -> !activity.isDestroyed() && view.getMediaPlayer() == core && !manager.isReleased();
+        FeatureSettingsDialog panel = new FeatureSettingsDialog(activity, "更多播放设置");
+        Result qualities = view.getQualityOptions();
+        if (qualities != null && qualities.getUrl().isMulti()) {
+            panel.row("清晰度 · " + qualityName(qualities, qualities.getUrl().getPosition()) + " ›", () -> {
+                panel.dialog.dismiss();
+                String[] names = new String[qualities.getUrl().getValues().size()];
+                for (int i = 0; i < names.length; i++) names[i] = qualityName(qualities, i);
+                select(activity, "切换清晰度", names, qualities.getUrl().getPosition(), index -> {
+                    if (view.getQualityOptions() == qualities) view.selectQuality(index);
+                });
+            });
         }
-        panel.row("管理点播来源", () -> { panel.dialog.dismiss(); manageVod.run(); });
-        panel.row("管理直播来源", () -> { panel.dialog.dismiss(); manageLive.run(); });
-        panel.row("管理壁纸来源", () -> { panel.dialog.dismiss(); manageWallpaper.run(); });
+        List<MediaChapter> chapters = manager.getCurrentMediaChapters();
+        if (!chapters.isEmpty()) panel.row("章节 · " + chapters.size() + " ›", () -> {
+            panel.dialog.dismiss();
+            String[] names = new String[chapters.size()]; int selected = -1;
+            for (int i = 0; i < names.length; i++) {
+                MediaChapter item = chapters.get(i);
+                names[i] = item.label + (item.timeUs == C.TIME_UNSET ? "" : " · " + playbackTime(item.timeUs / 1000));
+                if (item.selected) selected = i;
+            }
+            select(activity, "选择章节", names, selected, index -> { if (active.getAsBoolean()) manager.selectChapter(chapters.get(index)); });
+        });
+        List<MediaEdition> editions = manager.getCurrentMediaEditions();
+        if (!editions.isEmpty()) panel.row("影片版本 · " + editions.size() + " ›", () -> {
+            panel.dialog.dismiss();
+            String[] names = new String[editions.size()]; int selected = -1;
+            for (int i = 0; i < names.length; i++) {
+                MediaEdition item = editions.get(i);
+                names[i] = item.label + (item.durationUs == C.TIME_UNSET ? "" : " · " + playbackTime(item.durationUs / 1000));
+                if (item.selected) selected = i;
+            }
+            select(activity, "选择影片版本", names, selected, index -> { if (active.getAsBoolean()) manager.selectEdition(editions.get(index)); });
+        });
+        panel.row("画面调节 ›", () -> {
+            panel.dialog.dismiss();
+            if (active.getAsBoolean()) videoEffects(activity, manager, active);
+        });
+        panel.row("声音调节 ›", () -> {
+            panel.dialog.dismiss();
+            if (active.getAsBoolean()) audioEffects(activity, manager, active);
+        });
+        panel.row("音画／字幕同步 ›", () -> {
+            panel.dialog.dismiss();
+            if (active.getAsBoolean()) playbackOffsets(activity, manager, active);
+        });
+        if (manager.getEngine() == PlayerSetting.ENGINE_MPV) {
+            panel.row("双字幕 ›", () -> {
+                panel.dialog.dismiss();
+                if (active.getAsBoolean()) secondarySubtitle(activity, manager, active);
+            });
+            panel.row("MPV 自定义配置 ›", () -> {
+                panel.dialog.dismiss();
+                edit(activity, "MPV 自定义配置", "每行填写一个 mpv.conf 选项，保存后下次播放生效。播放器管理的选项仍以界面设置为准。",
+                        MpvConfigFile.read(), "例如：deband=yes", value -> {
+                            boolean saved = MpvConfigFile.write(value);
+                            Toast.makeText(activity, saved ? "已保存，下次播放生效" : "保存失败", Toast.LENGTH_SHORT).show();
+                        });
+            });
+        }
+        panel.dialog.show();
+    }
+
+    private static String qualityName(Result result, int index) {
+        String name = result.getUrl().n(index);
+        return name == null || name.trim().isEmpty() ? "清晰度 " + (index + 1) : name;
+    }
+    private static String playbackTime(long milliseconds) {
+        long seconds = Math.max(0, milliseconds / 1000);
+        return String.format(Locale.ROOT, "%02d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60);
+    }
+
+    private void range(String label, double min, double max, double step, double value, String unit,
+                       BooleanSupplier active, DoubleConsumer setter) {
+        TextView title = row(label, null);
+        SeekBar slider = new SeekBar(activity);
+        slider.setMax((int) Math.round((max - min) / step));
+        slider.setProgress((int) Math.round((Math.max(min, Math.min(max, value)) - min) / step));
+        slider.setContentDescription(label);
+        IntConsumer render = progress -> title.setText(label + "：" +
+                String.format(Locale.ROOT, step >= 1 ? "%.0f" : "%.2f", min + progress * step) + unit);
+        render.accept(slider.getProgress());
+        slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
+                render.accept(progress);
+                if (fromUser && active.getAsBoolean()) setter.accept(min + progress * step);
+            }
+            @Override public void onStartTrackingTouch(SeekBar bar) { }
+            @Override public void onStopTrackingTouch(SeekBar bar) { }
+        });
+        content.addView(slider, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+    }
+
+    private static void videoEffects(Activity activity, PlayerManager manager, BooleanSupplier active) {
+        if (!manager.canSetVideoSetting()) {
+            message(activity, "画面调节", "当前视频或渲染方式不支持画面调节，可切换播放器或渲染方式后重试。");
+            return;
+        }
+        FeatureSettingsDialog panel = new FeatureSettingsDialog(activity, "画面调节");
+        String[] presets = {"关闭", "自然", "鲜艳", "清晰", "明亮", "影院", "柔和", "暖色", "冷色", "护眼", "动漫", "运动", "游戏", "自定义"};
+        panel.row("画面预设 ›", () -> {
+            panel.dialog.dismiss();
+            select(activity, "画面预设", presets, VideoSetting.isEnabled() ? VideoSetting.getPreset() : 0,
+                    index -> { if (active.getAsBoolean()) { manager.setVideoSetting(index); videoEffects(activity, manager, active); } });
+        });
+        VideoEffectProfile profile = VideoSetting.getAppliedProfile();
+        boolean[] initialized = {false};
+        BooleanSupplier editable = () -> {
+            if (!active.getAsBoolean()) return false;
+            if (!initialized[0]) {
+                VideoSetting.putCustomProfile(profile);
+                initialized[0] = true;
+            }
+            return true;
+        };
+        DoubleConsumer refresh = ignored -> manager.setVideoSetting(VideoEffectPreset.CUSTOM);
+        panel.range("饱和度", .5, 2, .05, profile.getSaturation(), "", editable, value -> { VideoSetting.putSaturation((float)value); refresh.accept(value); });
+        panel.range("对比度", .5, 1.8, .05, profile.getContrast(), "", editable, value -> { VideoSetting.putContrast((float)value); refresh.accept(value); });
+        panel.range("亮度", -.2, .2, .01, profile.getBrightness(), "", editable, value -> { VideoSetting.putBrightness((float)value); refresh.accept(value); });
+        if (manager.supportsVideoSharpness()) panel.range("锐度", 0, .8, .02, profile.getSharpness(), "", editable, value -> { VideoSetting.putSharpness((float)value); refresh.accept(value); });
+        panel.range("暗部提亮", 0, .6, .02, profile.getShadowLift(), "", editable, value -> { VideoSetting.putShadow((float)value); refresh.accept(value); });
+        panel.range("伽马", .5, 2, .05, profile.getGamma(), "", editable, value -> { VideoSetting.putGamma((float)value); refresh.accept(value); });
+        panel.range("色相", -180, 180, 1, profile.getHue(), "°", editable, value -> { VideoSetting.putHue((float)value); refresh.accept(value); });
+        panel.range("色温", -100, 100, 1, profile.getTemperature(), "", editable, value -> { VideoSetting.putTemperature((float)value); refresh.accept(value); });
+        panel.row("恢复原始画面", () -> { if (active.getAsBoolean()) { VideoSetting.reset(); manager.refreshVideoSetting(); } panel.dialog.dismiss(); });
+        panel.dialog.show();
+    }
+
+    private static void audioEffects(Activity activity, PlayerManager manager, BooleanSupplier active) {
+        if (!manager.canSetAudioSetting()) {
+            message(activity, "声音调节", "当前音频输出不支持音效，可关闭音频直通或切换播放器后重试。");
+            return;
+        }
+        FeatureSettingsDialog panel = new FeatureSettingsDialog(activity, "声音调节");
+        String[] presets = {"关闭", "自然", "人声", "影院", "低音", "高音", "流行", "摇滚", "舞曲", "电子", "嘻哈", "爵士", "古典", "自定义"};
+        panel.row("音效预设 ›", () -> {
+            panel.dialog.dismiss();
+            select(activity, "音效预设", presets, AudioSetting.isEnabled() ? AudioSetting.getPreset() : 0,
+                    index -> { if (active.getAsBoolean()) { manager.setAudioSetting(index); audioEffects(activity, manager, active); } });
+        });
+        panel.range("音量稳定", 0, 100, 1, AudioSetting.getStability(), "%", active, value -> { AudioSetting.putStability((int)value); manager.refreshAudioSetting(); });
+        panel.range("对白增强", 0, 100, 1, AudioSetting.getDialogue(), "%", active, value -> { AudioSetting.putDialogue((int)value); manager.refreshAudioSetting(); });
+        panel.range("音量增益", 0, 12, .5, AudioSetting.getBoost()/100.0, " dB", active, value -> { AudioSetting.putBoost((int)Math.round(value*100)); manager.refreshAudioSetting(); });
+        panel.range("前级衰减", -12, 0, .5, AudioSetting.getPreamp()/100.0, " dB", active, value -> { AudioSetting.putPreamp((int)Math.round(value*100)); manager.refreshAudioSetting(); });
+        panel.toggle("响度补偿", AudioSetting::isLoudnessEnabled, value -> { if (active.getAsBoolean()) { AudioSetting.putLoudness(value); manager.refreshAudioSetting(); } });
+        if (manager.getAudioChannelCount() >= 2) {
+            panel.choice("声道模式", new String[]{"自动", "立体声", "单声道", "左右交换"}, new int[]{0,1,2,3}, AudioSetting::getChannelMode,
+                    value -> { if (active.getAsBoolean()) { AudioSetting.putChannelMode(value); manager.refreshAudioSetting(); } });
+            panel.range("左右平衡", -100, 100, 1, AudioSetting.getBalance(), "", active, value -> { AudioSetting.putBalance((int)value); manager.refreshAudioSetting(); });
+        }
+        if (manager.getAudioChannelCount() == 6 || manager.getAudioChannelCount() == 8)
+            panel.range("中置增益", 0, 12, .5, AudioSetting.getCenterGain()/100.0, " dB", active, value -> { AudioSetting.putCenterGain((int)Math.round(value*100)); manager.refreshAudioSetting(); });
+        AudioEffectBands bands = manager.getAudioSettingBands();
+        if (!bands.isEmpty()) {
+            short[] levels = AudioSetting.getLevels(bands);
+            for (int i = 0; i < bands.getCount(); i++) {
+                final int band = i;
+                panel.range((bands.getCenterFrequency(i)/1000) + " Hz", bands.getMinLevel()/100.0, bands.getMaxLevel()/100.0, .5, levels[i]/100.0, " dB", active, value -> {
+                    levels[band] = bands.clamp((int)Math.round(value*100));
+                    AudioSetting.putCustomLevels(bands, levels);
+                    manager.setAudioSetting(AudioEffectPreset.CUSTOM);
+                });
+            }
+        }
+        if (manager.supportsSkipSilence()) panel.toggle("跳过静音", manager::isSkipSilence, value -> { if (active.getAsBoolean()) manager.setSkipSilenceEnabled(value); });
+        panel.row("恢复原始声音", () -> { if (active.getAsBoolean()) { AudioSetting.reset(); manager.refreshAudioSetting(); } panel.dialog.dismiss(); });
+        panel.dialog.show();
+    }
+
+    private static void playbackOffsets(Activity activity, PlayerManager manager, BooleanSupplier active) {
+        FeatureSettingsDialog panel = new FeatureSettingsDialog(activity, "音画／字幕同步");
+        panel.row("正值延后，负值提前", null);
+        panel.range("音频延迟", -10, 10, .1, manager.getAudioOffsetMs()/1000.0, " 秒", active, value -> manager.setAudioOffsetMs(Math.round(value*1000)));
+        panel.range("字幕延迟", -30, 30, .1, manager.getTextOffsetMs()/1000.0, " 秒", active, value -> manager.setTextOffsetMs(Math.round(value*1000)));
+        panel.row("重置同步", () -> { if (active.getAsBoolean()) { manager.setAudioOffsetMs(0); manager.setTextOffsetMs(0); } panel.dialog.dismiss(); });
+        panel.dialog.show();
+    }
+
+    private static void secondarySubtitle(Activity activity, PlayerManager manager, BooleanSupplier active) {
+        FeatureSettingsDialog panel = new FeatureSettingsDialog(activity, "双字幕");
+        panel.choice("副字幕", new String[]{"关闭", "自动选择"}, new int[]{-2,-1}, SubtitleSetting::getSecondaryMode,
+                value -> { if (active.getAsBoolean()) { SubtitleSetting.putSecondaryMode(value); manager.applySubtitleStyle(); } });
+        panel.range("副字幕位置", 0, 100, 1, SubtitleSetting.getSecondaryPosition(), "%", active,
+                value -> { SubtitleSetting.putSecondaryPosition((float)value); manager.applySubtitleStyle(); });
         panel.dialog.show();
     }
     private static void message(Activity activity, String title, String detail) {
@@ -200,13 +386,6 @@ public final class FeatureSettingsDialog {
         input.requestFocus();
         Window window = panel.dialog.getWindow();
         if (window != null) window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
-    }
-    private void choice(String label, String key, String[] names, int defaultValue) {
-        TextView[] view = new TextView[1];
-        Runnable render = () -> view[0].setText(label + "：" + names[Math.max(0, Math.min(names.length - 1, Hawk.get(key, defaultValue)))]);
-        view[0] = row(label, () -> select(activity, label, names, Hawk.get(key, defaultValue), index -> {
-            Hawk.put(key, index); render.run();
-        })); render.run();
     }
     private void toggle(String label, String key, boolean defaultValue) {
         TextView[] view = new TextView[1];
@@ -262,52 +441,94 @@ public final class FeatureSettingsDialog {
                 new String[]{"-30秒", "-10秒", "-5秒", "0秒", "+5秒", "+10秒", "+30秒"}, index -> { long value = new long[]{-30000,-10000,-5000,0,5000,10000,30000}[index]; Hawk.put("danmaku_offset", value); offset[0].setText("时间调整：" + value / 1000 + "秒"); }));
         panel.dialog.show();
     }
-    public static void playback(Activity activity, Runnable refresh) {
-        FeatureSettingsDialog panel = new FeatureSettingsDialog(activity, "播放设置");
-        panel.choice("默认播放器", new String[]{"Exo播放器", "MPV播放器"}, new int[]{2, 1},
-                () -> Hawk.get(HawkConfig.PLAY_TYPE, 2), value -> Hawk.put(HawkConfig.PLAY_TYPE, value));
-        panel.choice("渲染方式", HawkConfig.PLAY_RENDER, new String[]{"TextureView", "SurfaceView"}, 0);
-        panel.choice("画面缩放", HawkConfig.PLAY_SCALE, new String[]{"默认", "16:9", "4:3", "填充", "原始", "裁剪"}, 0);
-        panel.choice("后台播放", HawkConfig.BACKGROUND_PLAY_TYPE, new String[]{"关闭", "开启", "画中画"}, 2);
-        panel.toggle("广告过滤", HawkConfig.VIDEO_PURIFY, true); panel.toggle("播放缓存", HawkConfig.IJK_CACHE_PLAY, false);
-        panel.row("高级播放（下次播放生效）", null);
+    public static void advancedPlayback(Activity activity) {
+        FeatureSettingsDialog panel = new FeatureSettingsDialog(activity, "高级播放设置");
+        panel.row("下次播放生效", null);
         panel.toggle("音频直通", com.kukuqi.tvbox.engine.setting.DecodeSetting::isAudioPassThrough,
                 com.kukuqi.tvbox.engine.setting.DecodeSetting::putAudioPassThrough);
         panel.toggle("静音片段跳过（Exo）", com.kukuqi.tvbox.engine.setting.SpeedSetting::isSkipSilence,
                 com.kukuqi.tvbox.engine.setting.SpeedSetting::putSkipSilence);
-        panel.toggle("MPV Vulkan渲染", com.kukuqi.tvbox.engine.setting.PlayerSetting::isMpvVulkan,
-                com.kukuqi.tvbox.engine.setting.PlayerSetting::putMpvVulkan);
-        panel.toggle("MPV GPU Next", com.kukuqi.tvbox.engine.setting.PlayerSetting::isMpvGpuNext,
-                com.kukuqi.tvbox.engine.setting.PlayerSetting::putMpvGpuNext);
+        panel.toggle("MPV Vulkan渲染", PlayerSetting::isMpvVulkan,
+                PlayerSetting::putMpvVulkan);
+        panel.toggle("MPV GPU Next", PlayerSetting::isMpvGpuNext,
+                PlayerSetting::putMpvGpuNext);
         panel.choice("MPV双字幕", new String[]{"默认关闭", "关闭", "自动选择"}, new int[]{-3, -2, -1},
-                com.kukuqi.tvbox.engine.setting.SubtitleSetting::getSecondaryMode,
-                com.kukuqi.tvbox.engine.setting.SubtitleSetting::putSecondaryMode);
+                SubtitleSetting::getSecondaryMode,
+                SubtitleSetting::putSecondaryMode);
         panel.choice("副字幕位置", new String[]{"顶部", "10%", "25%", "50%", "75%", "底部"}, new int[]{0, 10, 25, 50, 75, 100},
-                () -> Math.round(com.kukuqi.tvbox.engine.setting.SubtitleSetting.getSecondaryPosition()),
-                value -> com.kukuqi.tvbox.engine.setting.SubtitleSetting.putSecondaryPosition(value));
-        panel.dialog.setOnDismissListener(d -> refresh.run()); panel.dialog.show();
+                () -> Math.round(SubtitleSetting.getSecondaryPosition()),
+                value -> SubtitleSetting.putSecondaryPosition(value));
+        panel.dialog.show();
     }
     public static void modules(Activity activity) {
+        modules(activity, com.kukuqi.tvbox.osc.util.RuntimeDownload::catalogUrl);
+    }
+
+    /** The catalog provider lets instrumentation use a fixture without changing user preferences. */
+    public static void modules(Activity activity, java.util.function.Supplier<String> catalogProvider) {
         FeatureSettingsDialog panel = new FeatureSettingsDialog(activity, "模块管理");
-        panel.row("播放核心", null);
-        panel.row("Exo / Media3 · 已启用", null);
-        panel.row("MPV · 已启用", null);
-        panel.row("解析运行时", null);
-        panel.row("JAR Spider · 已启用", null);
-        panel.row("QuickJS · 已启用", null);
-        panel.row("Python · 已启用", null);
-        panel.row("内置组件随应用更新；来源模块可重载或清理", null);
-        File[] caches = {com.github.catvod.utils.Path.jar(), com.github.catvod.utils.Path.js(), com.github.catvod.utils.Path.py()};
-        String[] names = {"JAR 缓存", "JS 缓存", "Python 缓存"};
-        TextView[] sizes = new TextView[caches.length];
-        for (int i = 0; i < caches.length; i++) sizes[i] = panel.row(names[i], null);
+        for (com.kukuqi.tvbox.engine.runtime.RuntimeModule module : com.kukuqi.tvbox.engine.runtime.RuntimeModule.values()) {
+            TextView item = panel.row("", () -> {});
+            Runnable refresh = () -> item.setText(module.title + " · " + com.kukuqi.tvbox.engine.runtime.RuntimeModules.status(activity, module));
+            refresh.run();
+            panel.root.getViewTreeObserver().addOnWindowFocusChangeListener(focused -> { if (focused) refresh.run(); });
+            boolean[] downloading = {false};
+            item.setOnClickListener(v -> {
+                if (downloading[0]) return;
+                String catalog = catalogProvider.get();
+                if (catalog.trim().isEmpty()) {
+                    message(activity, "模块下载地址未配置", "请在下方设置可访问的模块目录地址后重试。");
+                    return;
+                }
+                downloading[0] = true;
+                java.util.function.Consumer<String> progress = text -> activity.runOnUiThread(() -> {
+                    if (!activity.isDestroyed() && panel.dialog.isShowing()) item.setText(module.title + " · " + text);
+                });
+                com.kukuqi.tvbox.osc.util.HeavyTaskUtil.executeNewTask(() -> {
+                    try {
+                        File apk = com.kukuqi.tvbox.osc.util.RuntimeDownload.download(activity.getApplicationContext(), module, catalog, progress);
+                        activity.runOnUiThread(() -> {
+                            downloading[0] = false;
+                            if (activity.isFinishing() || activity.isDestroyed() || !panel.dialog.isShowing()) return;
+                            try {
+                                android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(activity, activity.getPackageName() + ".fileprovider", apk);
+                                activity.startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW)
+                                        .setDataAndType(uri, "application/vnd.android.package-archive")
+                                        .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION));
+                            } catch (Exception failure) { progress.accept("无法打开安装器，请重试"); }
+                        });
+                    } catch (Exception failure) {
+                        activity.runOnUiThread(() -> { downloading[0] = false; progress.accept(com.kukuqi.tvbox.osc.util.RuntimeDownload.errorMessage(failure) + "（点击重试）"); });
+                    }
+                });
+            });
+        }
+        TextView builtIn = panel.row("内置：Exo / Media3、MPV、JAR Spider", null);
+        builtIn.setTextSize(13); builtIn.setMinHeight(0); builtIn.setPadding(panel.dp(12), panel.dp(8), panel.dp(12), panel.dp(8));
+        TextView moduleNote = panel.row("按需下载安装；更新已加载的模块后重启应用生效", null);
+        moduleNote.setTextSize(13); moduleNote.setMinHeight(0); moduleNote.setPadding(panel.dp(12), panel.dp(8), panel.dp(12), panel.dp(8));
+        TextView bdjNote = panel.row("BD-J 提供 Java 运行时；完整蓝光菜单仍需适配播放器", null);
+        bdjNote.setTextSize(13); bdjNote.setMinHeight(0); bdjNote.setPadding(panel.dp(12), panel.dp(8), panel.dp(12), panel.dp(8));
+        panel.row("模块下载地址", () -> edit(activity, "模块下载地址", "填写 HTTPS 模块目录地址（catalog.json）；留空恢复本项目 GitHub Releases。",
+                com.kukuqi.tvbox.osc.util.RuntimeDownload.catalogUrl(), "https://…/catalog.json",
+                value -> {
+                    String url = value.trim();
+                    if (!url.isEmpty() && !(url.startsWith("https://") || (com.kukuqi.tvbox.osc.BuildConfig.DEBUG && url.startsWith("http://")))) {
+                        Toast.makeText(activity, "请填写 HTTPS 地址", Toast.LENGTH_LONG).show(); return;
+                    }
+                    if (url.isEmpty()) Hawk.delete(com.kukuqi.tvbox.osc.util.RuntimeDownload.CATALOG_KEY);
+                    else Hawk.put(com.kukuqi.tvbox.osc.util.RuntimeDownload.CATALOG_KEY, url);
+                }));
+        File[] caches = {com.github.catvod.utils.Path.jar(), com.github.catvod.utils.Path.js(), com.github.catvod.utils.Path.py(), new File(activity.getFilesDir(), "nodejs/sites")};
+        TextView cacheSize = panel.row("", null);
         Runnable updateSizes = () -> {
-            for (int i = 0; i < caches.length; i++)
-                sizes[i].setText(names[i] + "：" + android.text.format.Formatter.formatFileSize(activity, com.github.catvod.utils.Path.size(caches[i])));
+            long total = 0;
+            for (File cache : caches) total += com.github.catvod.utils.Path.size(cache);
+            cacheSize.setText("来源脚本缓存：" + android.text.format.Formatter.formatFileSize(activity, total));
         };
         updateSizes.run();
         boolean[] busy = {false};
-        TextView status = panel.row("重新加载模块", () -> {});
+        TextView status = panel.row("重新加载来源模块", () -> {});
         Consumer<String> finish = message -> activity.runOnUiThread(() -> {
             busy[0] = false;
             if (activity.isDestroyed() || activity.isFinishing() || !panel.dialog.isShowing()) return;
@@ -334,9 +555,9 @@ public final class FeatureSettingsDialog {
                 } catch (Exception e) { finish.accept("加载失败，请重试"); }
             });
         });
-        panel.row("清除已下载的模块缓存", () -> {
+        panel.row("清除来源脚本缓存", () -> {
             if (busy[0]) return;
-            confirm(activity, "清除模块缓存", "仅清理下载缓存，保留来源和本地文件。下次使用时重新加载。", () -> {
+            confirm(activity, "清除模块缓存", "仅清理来源脚本和 JAR 缓存，保留来源、本地文件和已安装的运行时。下次使用时重新加载。", () -> {
                 if (busy[0]) return;
                 busy[0] = true;
                 status.setText("正在清除缓存…");
@@ -350,14 +571,5 @@ public final class FeatureSettingsDialog {
             });
         });
         panel.dialog.show();
-    }
-    public static void homeSite(Activity activity) {
-        List<SourceBean> sites = ApiConfig.get().getSourceBeanList();
-        if (sites.isEmpty()) { message(activity, "首页站点", "当前点播源尚未加载，请先选择有效来源"); return; }
-        String[] names = new String[sites.size()]; int selected = 0;
-        for (int i = 0; i < sites.size(); i++) { names[i] = sites.get(i).getName(); if (sites.get(i).getKey().equals(ApiConfig.get().getHomeSourceBean().getKey())) selected = i; }
-        select(activity, "首页站点", names, selected, index -> {
-            ApiConfig.get().setSourceBean(sites.get(index)); EventBus.getDefault().post(new SourceChangedEvent());
-        });
     }
 }

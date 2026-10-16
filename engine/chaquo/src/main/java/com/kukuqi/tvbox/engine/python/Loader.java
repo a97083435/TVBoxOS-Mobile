@@ -8,8 +8,8 @@ public class Loader {
 
     private final PyObject app;
 
-    public Loader() {
-        if (!Python.isStarted()) Python.start(Platform.create());
+    public Loader(android.content.Context context) {
+        if (!Python.isStarted()) Python.start(new Platform(context));
         app = Python.getInstance().getModule("app");
     }
 

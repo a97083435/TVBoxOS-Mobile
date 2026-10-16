@@ -12,12 +12,16 @@ import com.kukuqi.tvbox.osc.event.SourceChangedEvent;
 import com.kukuqi.tvbox.osc.util.HawkConfig;
 import com.kukuqi.tvbox.osc.util.LiveSourceLoader;
 import com.kukuqi.tvbox.osc.util.SourceLibrary;
+import com.kukuqi.tvbox.osc.util.SourceDescriptor;
+import com.kukuqi.tvbox.osc.util.SourceManager;
 import com.kukuqi.tvbox.osc.util.WallpaperManager;
 import com.lxj.xpopup.XPopup;
 import com.lxj.xpopup.core.CenterPopupView;
 import com.orhanobut.hawk.Hawk;
 import org.greenrobot.eventbus.EventBus;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 
 /** Each category has a persistent library; saving does not change the active selection. */
 public class SourcePickerDialog extends CenterPopupView {
@@ -57,6 +61,7 @@ public class SourcePickerDialog extends CenterPopupView {
         status.setVisibility(View.GONE);
         String address = current();
         ((TextView) findViewById(R.id.source_current_url)).setText(address.isEmpty() ? "未设置，请添加或选择来源" : address);
+        renderPlaylists();
         ArrayList<SourceLibrary.Entry> items = SourceLibrary.list(kind);
         ((TextView) findViewById(R.id.source_saved_title)).setText("已保存 · " + items.size());
         saved.removeAllViews();
@@ -70,6 +75,47 @@ public class SourcePickerDialog extends CenterPopupView {
             row.findViewById(R.id.source_item_more).setOnClickListener(v -> actions(entry));
             saved.addView(row);
         }
+    }
+    private String liveSource() {
+        String selected = current();
+        return selected.isEmpty() ? Hawk.get(HawkConfig.API_URL, "") : selected;
+    }
+    private void renderPlaylists() {
+        TextView button = findViewById(R.id.source_playlist);
+        button.setVisibility(View.GONE);
+        button.setOnClickListener(null);
+        if (kind != LIVE) return;
+        String sourceUrl = liveSource();
+        SourceDescriptor source = SourceManager.cached(sourceUrl);
+        if (source == null) return;
+        List<String> playlists = new ArrayList<>(new LinkedHashSet<>(source.playlists()));
+        if (playlists.size() < 2) return;
+        String[] names = new String[playlists.size() + 1];
+        names[0] = "自动选择";
+        String preferred = Hawk.get("live_playlist_url", "");
+        int selected = 0;
+        for (int i = 0; i < playlists.size(); i++) {
+            names[i + 1] = "频道列表 " + (i + 1);
+            for (com.google.gson.JsonElement item : source.lives()) {
+                if (!item.isJsonObject()) continue;
+                com.google.gson.JsonObject live = item.getAsJsonObject();
+                if (!playlists.get(i).equals(SourceDescriptor.resolve(sourceUrl, SourceDescriptor.string(live, "url")))) continue;
+                String name = SourceDescriptor.string(live, "name");
+                if (!name.isEmpty()) names[i + 1] = name;
+                break;
+            }
+            if (playlists.get(i).equals(preferred)) selected = i + 1;
+        }
+        button.setText("频道列表：" + names[selected]);
+        button.setVisibility(View.VISIBLE);
+        button.setOnClickListener(v -> new XPopup.Builder(getContext())
+                .asBottomList("选择频道列表", names, (index, text) -> {
+                    if (closed || !sourceUrl.equals(liveSource())) return;
+                    Hawk.put("live_playlist_url", index == 0 ? "" : playlists.get(index - 1));
+                    EventBus.getDefault().post(new SourceChangedEvent(true));
+                    render();
+                    message("已选择“" + names[index] + "”");
+                }).show());
     }
     private void actions(SourceLibrary.Entry entry) {
         boolean builtIn = SourceLibrary.isBuiltIn(kind, entry.url);

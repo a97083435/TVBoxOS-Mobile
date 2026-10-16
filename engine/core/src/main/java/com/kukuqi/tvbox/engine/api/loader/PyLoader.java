@@ -1,7 +1,8 @@
 package com.kukuqi.tvbox.engine.api.loader;
 
 import com.kukuqi.tvbox.engine.App;
-import com.kukuqi.tvbox.engine.python.Loader;
+import com.kukuqi.tvbox.engine.runtime.RuntimeModule;
+import com.kukuqi.tvbox.engine.runtime.RuntimeModules;
 import com.github.catvod.crawler.Spider;
 import com.github.catvod.crawler.SpiderNull;
 
@@ -11,12 +12,11 @@ import java.util.concurrent.ConcurrentHashMap;
 public class PyLoader {
 
     private final ConcurrentHashMap<String, Spider> spiders;
-    private final Loader loader;
+    private Object loader;
     private volatile String recent;
 
     public PyLoader() {
         spiders = new ConcurrentHashMap<>();
-        loader = new Loader();
     }
 
     public void clear() {
@@ -30,9 +30,11 @@ public class PyLoader {
     }
 
     public Spider getSpider(String key, String api, String ext) {
+        RuntimeModules.loader(App.get(), RuntimeModule.PYTHON);
+        if (loader == null) loader = RuntimeModules.create(App.get(), RuntimeModule.PYTHON);
         return spiders.computeIfAbsent(key, k -> {
             try {
-                Spider spider = loader.spider(api);
+                Spider spider = (Spider) RuntimeModules.call(loader, "spider", new Class<?>[]{String.class}, api);
                 spider.siteKey = key;
                 spider.init(App.get(), ext);
                 return spider;

@@ -30,10 +30,8 @@ android {
     lint { abortOnError false }
 }
 dependencies {
-    api fileTree(dir: "libs", include: ["*.aar"])
+    api fileTree(dir: "libs", include: ["*.aar"], exclude: ["thunder-release.aar"])
     implementation project(':source-runtime')
-    implementation project(':python-runtime')
-    implementation project(':js-runtime')
     implementation libs.appcompat
     implementation libs.lifecycle.service
     implementation libs.media

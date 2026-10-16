@@ -18,9 +18,12 @@ import com.kukuqi.tvbox.engine.utils.Util;
 import com.github.catvod.utils.Trans;
 import com.google.gson.annotations.JsonAdapter;
 import com.google.gson.annotations.SerializedName;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 import org.json.JSONObject;
 import org.simpleframework.xml.ElementList;
+import org.simpleframework.xml.Attribute;
 import org.simpleframework.xml.Path;
 import org.simpleframework.xml.Root;
 import org.simpleframework.xml.core.Persister;
@@ -87,7 +90,21 @@ public class Result implements Parcelable {
     @SerializedName("position")
     private Long position;
     @SerializedName("pagecount")
+    @Path("list")
+    @Attribute(name = "pagecount", required = false)
     private Integer pagecount;
+    @SerializedName("page")
+    @Path("list")
+    @Attribute(name = "page", required = false)
+    private Integer page;
+    @SerializedName("limit")
+    @Path("list")
+    @Attribute(name = "pagesize", required = false)
+    private Integer limit;
+    @SerializedName("total")
+    @Path("list")
+    @Attribute(name = "recordcount", required = false)
+    private Integer total;
     @SerializedName("parse")
     private Integer parse;
     @SerializedName("code")
@@ -127,7 +144,23 @@ public class Result implements Parcelable {
     }
 
     public static Result fromType(int type, String str) {
-        return type == 0 ? fromXml(str) : fromJson(str);
+        // Collection endpoints sometimes switch XML/JSON with an `at` query parameter.
+        // Reject HTML error pages instead of silently displaying an empty catalogue.
+        String body = str == null ? "" : str.replaceFirst("^\\ufeff", "").trim();
+        try {
+            if (body.startsWith("{")) {
+                JsonObject object = JsonParser.parseString(body).getAsJsonObject();
+                if (!(object.has("list") && object.get("list").isJsonArray())
+                        && !(object.has("class") && object.get("class").isJsonArray()))
+                    throw new IllegalArgumentException("missing collection list");
+                return App.gson().fromJson(object, Result.class).trans();
+            }
+            if (body.startsWith("<?xml") || body.startsWith("<rss"))
+                return new Persister().read(Result.class, body, false).trans();
+        } catch (Exception e) {
+            throw new IllegalArgumentException("采集接口数据格式错误，请检查 XML/JSON 接口", e);
+        }
+        throw new IllegalArgumentException("采集接口未返回 XML/JSON 数据");
     }
 
     public static Result fromObject(JSONObject object) {
@@ -291,6 +324,12 @@ public class Result implements Parcelable {
     public Integer getPageCount() {
         return pagecount == null ? 0 : pagecount;
     }
+
+    public int getPage() { return page == null ? 0 : page; }
+
+    public int getLimit() { return limit == null ? 0 : limit; }
+
+    public int getTotal() { return total == null ? 0 : total; }
 
     public Integer getParse() {
         return parse == null ? 0 : parse;

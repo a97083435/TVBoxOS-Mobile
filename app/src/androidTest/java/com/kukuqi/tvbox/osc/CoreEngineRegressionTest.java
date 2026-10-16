@@ -22,6 +22,8 @@ public class CoreEngineRegressionTest extends InstrumentationTestCase {
         super.setUp();
         server = new NanoHTTPD("127.0.0.1", 0) {
             @Override public Response serve(IHTTPSession session) {
+                if (session.getUri().equals("/quality.js")) return newFixedLengthResponse(Response.Status.OK, "text/javascript",
+                        "export default {init:async()=>{},play:async()=>JSON.stringify({parse:0,url:['1080P','"+base+"/video.mp4','720P','"+base+"/video.mp4?low'],header:{'X-Quality':'retained'},subs:[{name:'中文',url:'"+base+"/text.srt'}]})};");
                 if (session.getUri().endsWith(".js")) return newFixedLengthResponse(Response.Status.OK, "text/javascript",
                     "export default {init: async()=>{}, home: async()=>JSON.stringify({class:[{type_id:'1',type_name:'JS分类'}]}), homeVod: async()=>JSON.stringify({list:[{vod_id:'js1',vod_name:'"+(session.getUri().equals("/second.js")?"替换影片":"JS影片")+"'}]}), play: async(flag,id)=>JSON.stringify({parse:0,url:id,header:{'X-Core':'js'}}), destroy: async()=>{}};");
                 if (session.getUri().endsWith(".py")) return newFixedLengthResponse(Response.Status.OK, "text/plain",
@@ -41,6 +43,24 @@ public class CoreEngineRegressionTest extends InstrumentationTestCase {
         VodConfig.get().accept(base+"/config", language, JsonParser.parseString("{\"sites\":[{\"key\":\""+language+"\",\"name\":\""+language+"\",\"type\":3,\"api\":\""+base+"/fixture."+language+"\"}]}").getAsJsonObject());
     }
     public void testJavascriptLoaderHomeAndPlayer() throws Exception { verifyLoader("js", "JS影片"); }
+    public void testViewModelRetainsNamedQualitiesAndCoreMetadata() throws Exception {
+        VodConfig.get().accept(base+"/qualities", "qualities", JsonParser.parseString("{\"sites\":[{\"key\":\"qualities\",\"type\":3,\"api\":\""+base+"/quality.js\"}]}").getAsJsonObject());
+        com.kukuqi.tvbox.osc.viewmodel.SourceViewModel model = new com.kukuqi.tvbox.osc.viewmodel.SourceViewModel();
+        CountDownLatch done = new CountDownLatch(1);
+        org.json.JSONObject[] received = {null};
+        androidx.lifecycle.Observer<org.json.JSONObject> observer = value -> { received[0] = value; done.countDown(); };
+        onMain(() -> { model.playResult.observeForever(observer); model.getPlay("qualities", "line", "progress", "episode", "subtitle"); });
+        try {
+            assertTrue(done.await(20, TimeUnit.SECONDS)); assertNotNull(received[0]);
+            assertEquals(base+"/video.mp4", received[0].getString("url"));
+            Result core = Result.objectFrom(received[0].getJSONObject("coreResult").toString());
+            assertEquals(2, core.getUrl().getValues().size());
+            assertEquals("720P", core.getUrl().n(1));
+            assertEquals("retained", core.getHeader().get("X-Quality"));
+            assertEquals(1, core.getSubs().size());
+            assertEquals("progress", received[0].getString("proKey"));
+        } finally { onMain(() -> model.playResult.removeObserver(observer)); }
+    }
     public void testPythonLoaderHomeAndPlayer() throws Exception { verifyLoader("py", "Python影片"); }
     private void verifyLoader(String language, String title) throws Exception {
         configure(language);
@@ -129,6 +149,14 @@ public class CoreEngineRegressionTest extends InstrumentationTestCase {
             });
             await(()->video[0].getCurrentPosition()>=4900);
             onMain(()->video[0].pause()); await(()->!video[0].isPlaying());
+            // playWhenReady is pause intent; wait for asynchronous seek/native position updates to settle.
+            long[] previous = {-1}; int[] stable = {0};
+            await(() -> {
+                long current = video[0].getCurrentPosition();
+                stable[0] = previous[0] >= 0 && Math.abs(current - previous[0]) < 40 ? stable[0] + 1 : 0;
+                previous[0] = current;
+                return stable[0] >= 3;
+            });
             long[] position={0}; onMain(()->position[0]=video[0].getCurrentPosition());
             Thread.sleep(500);
             onMain(()->{assertTrue("Paused position: "+position[0]+" -> "+video[0].getCurrentPosition(),Math.abs(video[0].getCurrentPosition()-position[0])<300);video[0].resume();});
@@ -136,7 +164,12 @@ public class CoreEngineRegressionTest extends InstrumentationTestCase {
             if(tracks) verifyTracks(video[0],activity[0],backend);
             android.graphics.Bitmap screenshot=getInstrumentation().getUiAutomation().takeScreenshot();
             try(java.io.FileOutputStream output=new java.io.FileOutputStream(new java.io.File(getInstrumentation().getTargetContext().getExternalFilesDir(null),"core-"+(tracks?"tracks":"engine")+"-"+backend+".png"))){screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG,100,output);} finally{screenshot.recycle();}
-        } finally {onMain(()->{if(activity[0]!=null)activity[0].finish();com.orhanobut.hawk.Hawk.put(com.kukuqi.tvbox.osc.util.HawkConfig.PLAY_TYPE,old);});}
+        } finally {
+            onMain(()->{if(activity[0]!=null)activity[0].finish();com.orhanobut.hawk.Hawk.put(com.kukuqi.tvbox.osc.util.HawkConfig.PLAY_TYPE,old);});
+            // A late onDestroy from the preceding Activity must not release the next native player.
+            if (activity[0] != null) await(() -> activity[0].isDestroyed());
+            getInstrumentation().waitForIdleSync();
+        }
     }
     private void verifyTracks(com.kukuqi.tvbox.osc.player.MyVideoView video,android.app.Activity activity,int backend) throws Exception {
         com.kukuqi.tvbox.osc.player.CorePlayer player=(com.kukuqi.tvbox.osc.player.CorePlayer)video.getMediaPlayer();
