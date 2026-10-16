@@ -21,6 +21,7 @@ public class RuntimeModuleRegressionTest extends InstrumentationTestCase {
     private NanoHTTPD server;
     private String base;
     private volatile boolean corruptHash, truncate;
+    private volatile String requestedRange;
     @Override protected void setUp() throws Exception {
         super.setUp(); host = getInstrumentation().getTargetContext();
         server = new NanoHTTPD("127.0.0.1", 0) {
@@ -30,7 +31,15 @@ public class RuntimeModuleRegressionTest extends InstrumentationTestCase {
                     if (session.getUri().equals("/source.cjs")) return newFixedLengthResponse(Response.Status.OK, "text/javascript", "module.exports={home:async()=>({list:[{vod_name:'remote-node-ready'}]})};");
                     RuntimeModule requested = java.util.Arrays.stream(RuntimeModule.values()).filter(module -> session.getUri().equals("/" + module.id + ".apk")).findFirst().orElseThrow();
                     File file = fixture(requested);
-                    if (truncate) return newFixedLengthResponse(Response.Status.OK, "application/octet-stream", "incomplete");
+                    if (truncate) return newFixedLengthResponse(Response.Status.OK, "application/octet-stream", new FileInputStream(file), 131072);
+                    requestedRange = session.getHeaders().get("range");
+                    if (requestedRange != null) {
+                        long offset = Long.parseLong(requestedRange.substring(6).replace("-", ""));
+                        FileInputStream input = new FileInputStream(file); input.skipNBytes(offset);
+                        Response response = newFixedLengthResponse(Response.Status.PARTIAL_CONTENT, "application/octet-stream", input, file.length() - offset);
+                        response.addHeader("Content-Range", "bytes " + offset + "-" + (file.length() - 1) + "/" + file.length());
+                        return response;
+                    }
                     return newFixedLengthResponse(Response.Status.OK, "application/vnd.android.package-archive", new FileInputStream(file), file.length());
                 } catch (Exception e) { return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", e.toString()); }
             }
@@ -39,6 +48,10 @@ public class RuntimeModuleRegressionTest extends InstrumentationTestCase {
     }
     @Override protected void tearDown() throws Exception { server.stop(); super.tearDown(); }
     private File fixture(RuntimeModule module) { return new File("/sdcard/Download/tvbox-runtime-fixtures/" + module.id + ".apk"); }
+    private File[] partials(RuntimeModule module) {
+        File[] files = new File(host.getCacheDir(), "runtime-downloads").listFiles((dir, name) -> name.startsWith(module.id + "-") && name.endsWith(".part"));
+        return files == null ? new File[0] : files;
+    }
     private JSONObject catalog() throws Exception {
         JSONArray modules = new JSONArray();
         for (RuntimeModule module : RuntimeModule.values()) {
@@ -69,14 +82,14 @@ public class RuntimeModuleRegressionTest extends InstrumentationTestCase {
         for (RuntimeModule module : RuntimeModule.values()) {
             File apk = RuntimeDownload.download(host, module, base + "/catalog.json", value -> {});
             assertEquals(fixture(module).length(), apk.length());
-            assertFalse(new File(apk.getParentFile(), module.id + ".part").exists());
+            assertEquals(0, partials(module).length);
         }
     }
     public void testCorruptDownloadRejectedAndCanRetry() throws Exception {
         corruptHash = true;
         try { RuntimeDownload.download(host, RuntimeModule.QUICKJS, base + "/catalog.json", value -> {}); fail("Corrupt module accepted"); }
         catch (SecurityException expected) { assertTrue(expected.getMessage().contains("SHA-256")); }
-        assertFalse(new File(host.getCacheDir(), "runtime-downloads/quickjs.part").exists());
+        assertEquals(0, partials(RuntimeModule.QUICKJS).length);
         corruptHash = false;
         assertTrue(RuntimeDownload.download(host, RuntimeModule.QUICKJS, base + "/catalog.json", value -> {}).isFile());
     }
@@ -84,7 +97,20 @@ public class RuntimeModuleRegressionTest extends InstrumentationTestCase {
         truncate = true;
         try { RuntimeDownload.download(host, RuntimeModule.PYTHON, base + "/catalog.json", value -> {}); fail("Truncated module accepted"); }
         catch (java.io.IOException expected) { assertTrue(expected.getMessage().contains("不完整")); }
-        assertFalse(new File(host.getCacheDir(), "runtime-downloads/python.part").exists());
+        assertEquals(1, partials(RuntimeModule.PYTHON).length);
+        assertEquals(131072, partials(RuntimeModule.PYTHON)[0].length());
+    }
+    public void testInterruptedModuleDownloadResumesAndVerifies() throws Exception {
+        truncate = true;
+        try { RuntimeDownload.download(host, RuntimeModule.QUICKJS, base + "/catalog.json", value -> {}); fail("Incomplete module accepted"); }
+        catch (java.io.IOException expected) { assertTrue(expected.getMessage().contains("不完整")); }
+        File[] partial = partials(RuntimeModule.QUICKJS);
+        assertNotNull(partial); assertEquals(1, partial.length); assertEquals(131072, partial[0].length());
+        truncate = false;
+        File apk = RuntimeDownload.download(host, RuntimeModule.QUICKJS, base + "/catalog.json", value -> {});
+        assertEquals("bytes=131072-", requestedRange);
+        assertEquals(fixture(RuntimeModule.QUICKJS).length(), apk.length());
+        assertFalse(partial[0].exists());
     }
     @SuppressWarnings("deprecation")
     public void testForeignSignerAndContractRejected() throws Exception {

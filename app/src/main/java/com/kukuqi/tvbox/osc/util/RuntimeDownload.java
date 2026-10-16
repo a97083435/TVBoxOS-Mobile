@@ -8,7 +8,7 @@ import com.kukuqi.tvbox.engine.runtime.RuntimeModule;
 import com.kukuqi.tvbox.engine.runtime.RuntimeModules;
 import com.kukuqi.tvbox.osc.BuildConfig;
 import java.io.File;
-import java.io.FileOutputStream;
+import java.io.FileInputStream;
 import java.io.InputStream;
 import java.security.MessageDigest;
 import java.util.Locale;
@@ -16,7 +16,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.zip.ZipFile;
 import okhttp3.OkHttpClient;
-import okhttp3.Request;
 import okhttp3.Response;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -24,9 +23,12 @@ import org.json.JSONObject;
 /** Download to private staging storage; verify before offering the APK to Android's installer. */
 public final class RuntimeDownload {
     public static final String CATALOG_KEY = "runtime_catalog_url";
+    public static final String ROUTE_KEY = "runtime_download_route";
     private static final long LIMIT = 160L * 1024 * 1024;
-    private static final OkHttpClient CLIENT = new OkHttpClient.Builder().connectTimeout(20, TimeUnit.SECONDS)
-            .readTimeout(45, TimeUnit.SECONDS).callTimeout(10, TimeUnit.MINUTES).followSslRedirects(false).build();
+    private static final OkHttpClient CLIENT = new OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(25, TimeUnit.SECONDS).callTimeout(20, TimeUnit.MINUTES).followSslRedirects(false).build();
+    private static final RuntimeTransfer TRANSFER = new RuntimeTransfer(CLIENT);
+    private static final RuntimeTransfer CATALOG = new RuntimeTransfer(CLIENT.newBuilder().callTimeout(25, TimeUnit.SECONDS).build());
     private RuntimeDownload() {}
     /** Old instrumentation builds accidentally persisted their short-lived fixture server. */
     public static void migrateCatalog() {
@@ -43,10 +45,12 @@ public final class RuntimeDownload {
         String saved = com.orhanobut.hawk.Hawk.get(CATALOG_KEY, "");
         return saved.trim().isEmpty() ? BuildConfig.RUNTIME_CATALOG_URL : saved.trim();
     }
+    public static int routeMode() { return com.orhanobut.hawk.Hawk.get(ROUTE_KEY, 0); }
     public static String errorMessage(Exception failure) {
         if (failure instanceof java.net.ConnectException) return "无法连接模块服务器，请检查下载地址";
         if (failure instanceof java.net.UnknownHostException) return "无法解析模块服务器，请检查网络";
-        if (failure instanceof java.net.SocketTimeoutException) return "连接超时，请重试";
+        if (failure instanceof java.net.SocketTimeoutException || failure instanceof java.io.InterruptedIOException)
+            return "下载超时，可切换下载线路后重试，已下载部分会保留";
         if (failure instanceof javax.net.ssl.SSLException) return "模块服务器安全连接失败";
         return failure.getMessage() == null ? "下载失败，请重试" : failure.getMessage();
     }
@@ -54,30 +58,28 @@ public final class RuntimeDownload {
         if (url == null || !(url.startsWith("https://") || (BuildConfig.DEBUG && url.startsWith("http://"))))
             throw new IllegalArgumentException("模块下载地址须使用 HTTPS");
     }
-    private static Response request(String url) throws Exception {
-        checkUrl(url);
-        Response response = CLIENT.newCall(new Request.Builder().url(url).build()).execute();
-        if (!response.isSuccessful() || response.body() == null) {
-            int code = response.code(); response.close(); throw new java.io.IOException("下载失败 HTTP " + code);
+    private static JSONObject catalog(String url, Consumer<String> progress) throws Exception {
+        Exception last = null;
+        for (String route : RuntimeTransfer.routes(url, routeMode())) {
+            checkUrl(route);
+            progress.accept("正在读取模块目录 · " + RuntimeTransfer.routeName(route));
+            try (Response response = CATALOG.request(route); InputStream in = response.body().byteStream()) {
+                byte[] data = in.readNBytes(1024 * 1024 + 1);
+                if (data.length > 1024 * 1024) throw new java.io.IOException("模块目录过大");
+                JSONObject catalog = new JSONObject(new String(data, java.nio.charset.StandardCharsets.UTF_8));
+                if (catalog.getInt("schema") != 1) throw new IllegalArgumentException("不支持的模块目录版本");
+                catalog.getJSONArray("modules");
+                return catalog;
+            } catch (Exception failure) { last = failure; }
         }
-        checkUrl(response.request().url().toString());
-        return response;
+        if (last != null && "下载失败 HTTP 404".equals(last.getMessage()))
+            throw new java.io.IOException("模块暂未上架，请稍后重试或检查下载地址", last);
+        throw last == null ? new java.io.IOException("无法读取模块目录") : last;
     }
     @SuppressWarnings("deprecation")
     public static synchronized File download(Context host, RuntimeModule module, String catalogUrl, Consumer<String> progress) throws Exception {
         if (catalogUrl == null || catalogUrl.trim().isEmpty()) throw new IllegalStateException("尚未设置模块下载地址");
-        progress.accept("正在读取模块目录…");
-        JSONObject catalog;
-        try (Response response = request(catalogUrl.trim()); InputStream in = response.body().byteStream()) {
-            byte[] data = in.readNBytes(1024 * 1024 + 1);
-            if (data.length > 1024 * 1024) throw new java.io.IOException("模块目录过大");
-            catalog = new JSONObject(new String(data, java.nio.charset.StandardCharsets.UTF_8));
-        } catch (java.io.IOException failure) {
-            if ("下载失败 HTTP 404".equals(failure.getMessage()))
-                throw new java.io.IOException("模块暂未上架，请稍后重试或检查下载地址", failure);
-            throw failure;
-        }
-        if (catalog.getInt("schema") != 1) throw new IllegalArgumentException("不支持的模块目录版本");
+        JSONObject catalog = catalog(catalogUrl.trim(), progress);
         JSONArray modules = catalog.getJSONArray("modules");
         JSONObject selected = null, artifact = null;
         for (int i = 0; i < modules.length(); i++) {
@@ -97,40 +99,47 @@ public final class RuntimeDownload {
         if (size <= 0 || size > LIMIT || !digest.matches("[a-fA-F0-9]{64}")) throw new IllegalArgumentException("模块校验信息无效");
         File directory = new File(host.getCacheDir(), "runtime-downloads");
         if (!directory.isDirectory() && !directory.mkdirs()) throw new java.io.IOException("无法创建下载目录");
-        File part = new File(directory, module.id + ".part");
+        // Pin partial data to the expected content, so a new catalog cannot resume an old module build.
+        File part = new File(directory, module.id + "-" + digest.toLowerCase(Locale.ROOT) + ".part");
+        File[] stale = directory.listFiles((dir, name) -> name.startsWith(module.id + "-") && name.endsWith(".part") && !name.equals(part.getName()));
+        if (stale != null) for (File file : stale) file.delete();
         File verified = new File(directory, module.id + ".apk");
-        try {
-            MessageDigest sha = MessageDigest.getInstance("SHA-256");
-            try (Response response = request(artifact.getString("url")); InputStream in = response.body().byteStream(); FileOutputStream out = new FileOutputStream(part)) {
-                long total = 0, last = 0; byte[] buffer = new byte[32768]; int count;
-                while ((count = in.read(buffer)) != -1) {
-                    if (Thread.currentThread().isInterrupted()) throw new java.io.InterruptedIOException("下载已取消");
-                    total += count;
-                    if (total > size) throw new java.io.IOException("模块长度超出目录声明");
-                    out.write(buffer, 0, count); sha.update(buffer, 0, count);
-                    if (total - last >= 512 * 1024) { last = total; progress.accept("正在下载 " + (total * 100 / size) + "%"); }
-                }
-                if (total != size) throw new java.io.IOException("模块下载不完整");
-                out.getFD().sync();
-            }
-            StringBuilder actual = new StringBuilder();
-            for (byte b : sha.digest()) actual.append(String.format(Locale.ROOT, "%02x", b & 255));
-            if (!digest.equalsIgnoreCase(actual.toString())) throw new SecurityException("模块 SHA-256 校验失败");
-            PackageInfo info = host.getPackageManager().getPackageArchiveInfo(part.getAbsolutePath(), PackageManager.GET_META_DATA | PackageManager.GET_SIGNATURES);
-            if (info == null) throw new SecurityException("下载文件不是有效的模块 APK");
-            RuntimeModules.verify(host, module, info);
-            if (info.versionCode != selected.getInt("versionCode")) throw new SecurityException("模块版本与目录不一致");
+        Exception last = null;
+        for (String route : RuntimeTransfer.routes(artifact.getString("url"), routeMode())) {
+            checkUrl(route);
+            progress.accept("正在连接 · " + RuntimeTransfer.routeName(route));
             try {
-                if (info.versionCode < RuntimeModules.installed(host, module).versionCode) throw new SecurityException("禁止降级模块");
-            } catch (PackageManager.NameNotFoundException ignored) { }
-            try (ZipFile zip = new ZipFile(part)) {
-                if (zip.stream().noneMatch(entry -> entry.getName().startsWith("lib/arm64-v8a/") && entry.getName().endsWith(".so")))
-                    throw new SecurityException("模块缺少 ARM64 原生库");
+                TRANSFER.download(route, part, size, progress);
+                progress.accept("下载完成，正在校验…");
+                MessageDigest sha = MessageDigest.getInstance("SHA-256");
+                try (InputStream in = new FileInputStream(part)) {
+                    byte[] buffer = new byte[32768]; int count;
+                    while ((count = in.read(buffer)) != -1) sha.update(buffer, 0, count);
+                }
+                StringBuilder actual = new StringBuilder();
+                for (byte b : sha.digest()) actual.append(String.format(Locale.ROOT, "%02x", b & 255));
+                if (!digest.equalsIgnoreCase(actual.toString())) throw new SecurityException("模块 SHA-256 校验失败");
+                PackageInfo info = host.getPackageManager().getPackageArchiveInfo(part.getAbsolutePath(), PackageManager.GET_META_DATA | PackageManager.GET_SIGNATURES);
+                if (info == null) throw new SecurityException("下载文件不是有效的模块 APK");
+                RuntimeModules.verify(host, module, info);
+                if (info.versionCode != selected.getInt("versionCode")) throw new SecurityException("模块版本与目录不一致");
+                try {
+                    if (info.versionCode < RuntimeModules.installed(host, module).versionCode) throw new SecurityException("禁止降级模块");
+                } catch (PackageManager.NameNotFoundException ignored) { }
+                try (ZipFile zip = new ZipFile(part)) {
+                    if (zip.stream().noneMatch(entry -> entry.getName().startsWith("lib/arm64-v8a/") && entry.getName().endsWith(".so")))
+                        throw new SecurityException("模块缺少 ARM64 原生库");
+                }
+                if (verified.exists() && !verified.delete()) throw new java.io.IOException("无法替换模块安装包");
+                if (!part.renameTo(verified)) throw new java.io.IOException("无法完成模块下载");
+                progress.accept("校验通过，等待安装");
+                return verified;
+            } catch (Exception failure) {
+                last = failure;
+                if (failure instanceof SecurityException || part.length() >= size) part.delete();
+                if (Thread.currentThread().isInterrupted()) throw failure;
             }
-            if (verified.exists() && !verified.delete()) throw new java.io.IOException("无法替换模块安装包");
-            if (!part.renameTo(verified)) throw new java.io.IOException("无法完成模块下载");
-            progress.accept("校验通过，等待安装");
-            return verified;
-        } finally { if (part.exists()) part.delete(); }
+        }
+        throw last == null ? new java.io.IOException("模块下载失败") : last;
     }
 }
