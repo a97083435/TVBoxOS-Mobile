@@ -62,7 +62,7 @@ https://github.com/UndCover/PyramidStore/
 
 ## 📲软件合集（软件安装）
 ### TVBox for Android
-- TVboxOSC：[下载 v3.0.5](https://gh-proxy.com/https://github.com/kukuqi666/TVboxOSC/releases/download/v3.0.5/TVboxOSC-v3.0.5.apk) · [所有版本](https://github.com/kukuqi666/TVboxOSC/releases)
+- TVboxOSC：[下载 v3.0.6](https://gh-proxy.com/https://github.com/kukuqi666/TVboxOSC/releases/download/v3.0.6/TVboxOSC-v3.0.6.apk) · [所有版本](https://github.com/kukuqi666/TVboxOSC/releases)
 
 
 ## 🎁福利18+
