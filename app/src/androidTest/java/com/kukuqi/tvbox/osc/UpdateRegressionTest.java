@@ -8,6 +8,9 @@ import androidx.work.WorkerParameters;
 import androidx.work.testing.TestWorkerBuilder;
 import com.kukuqi.tvbox.osc.update.UpdateStore;
 import com.kukuqi.tvbox.osc.update.UpdateWorker;
+import com.kukuqi.tvbox.osc.util.RuntimeTransfer;
+import com.kukuqi.tvbox.osc.util.UpdateManifest;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -38,7 +41,9 @@ public class UpdateRegressionTest extends InstrumentationTestCase {
         original = store.prefs.getAll();
         store.prefs.edit().clear().putBoolean("auto_download", false).commit();
         executor = Executors.newSingleThreadExecutor();
-        FakeWorker.bodies.clear(); FakeWorker.urls.clear(); FakeWorker.networkFailures = 0;
+        FakeWorker.bodies.clear(); FakeWorker.urls.clear(); FakeWorker.requests.clear(); FakeWorker.networkFailures = 0;
+        FakeWorker.rangeReply = false;
+        store.partial(new UpdateManifest(MANIFEST, BuildConfig.APPLICATION_ID)).delete();
     }
     @Override protected void tearDown() throws Exception {
         SharedPreferences.Editor editor = store.prefs.edit().clear();
@@ -100,18 +105,20 @@ public class UpdateRegressionTest extends InstrumentationTestCase {
         assertEquals(UpdateStore.ERROR, store.state());
         assertFalse(store.hasReadyUpdate());
         assertFalse(store.apk(store.manifest()).exists());
-        assertEquals(2, FakeWorker.urls.size());
+        assertEquals(3, FakeWorker.urls.size());
         assertEquals(MIRROR + APK_URL, FakeWorker.urls.get(0));
-        assertEquals(APK_URL, FakeWorker.urls.get(1));
+        assertEquals(RuntimeTransfer.SECONDARY + APK_URL, FakeWorker.urls.get(1));
+        assertEquals(APK_URL, FakeWorker.urls.get(2));
+        assertFalse(store.partial(store.manifest()).exists());
     }
     public void testDownloadNetworkFailureFallsBackToOfficial() {
         store.prefs.edit().putString("manifest", MANIFEST).commit();
-        FakeWorker.networkFailures = 1;
+        FakeWorker.networkFailures = 2;
         FakeWorker.bodies.add("abd");
         worker(true).doWork();
-        assertEquals(2, FakeWorker.urls.size());
+        assertEquals(3, FakeWorker.urls.size());
         assertEquals(MIRROR + APK_URL, FakeWorker.urls.get(0));
-        assertEquals(APK_URL, FakeWorker.urls.get(1));
+        assertEquals(APK_URL, FakeWorker.urls.get(2));
         assertFalse(store.hasReadyUpdate());
     }
     public void testInvalidMirrorArchiveFallsBackToOfficial() {
@@ -119,10 +126,26 @@ public class UpdateRegressionTest extends InstrumentationTestCase {
         FakeWorker.bodies.add("abc"); // Correct checksum, but not an APK for this app.
         FakeWorker.bodies.add("abd");
         worker(true).doWork();
-        assertEquals(2, FakeWorker.urls.size());
+        assertEquals(3, FakeWorker.urls.size());
         assertEquals(MIRROR + APK_URL, FakeWorker.urls.get(0));
-        assertEquals(APK_URL, FakeWorker.urls.get(1));
+        assertEquals(APK_URL, FakeWorker.urls.get(2));
         assertFalse(store.hasReadyUpdate());
+    }
+
+    public void testInterruptedUpdateSurvivesWorkerReplacementAndResumes() throws Exception {
+        store.prefs.edit().putString("manifest", MANIFEST).commit();
+        FakeWorker.bodies.add("ab");
+        worker(true).doWork();
+        java.io.File partial = store.partial(store.manifest());
+        assertEquals(2L, partial.length());
+        try (FileInputStream input = new FileInputStream(partial)) { assertEquals("ab", new String(input.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)); }
+        FakeWorker.requests.clear(); FakeWorker.urls.clear();
+        FakeWorker.rangeReply = true; FakeWorker.bodies.add("c");
+        worker(true).doWork();
+        assertEquals("bytes=2-", FakeWorker.requests.get(0).header("Range"));
+        // The resumed bytes pass SHA verification, but the fake three-byte payload must still fail APK verification.
+        assertFalse(store.hasReadyUpdate());
+        assertFalse(partial.exists());
     }
 
     public void testAboutKeepsBackgroundDownloadStateWhenClosed() throws Exception {
@@ -195,14 +218,24 @@ public class UpdateRegressionTest extends InstrumentationTestCase {
     public static class FakeWorker extends UpdateWorker {
         static final ArrayDeque<String> bodies = new ArrayDeque<>();
         static final ArrayList<String> urls = new ArrayList<>();
+        static final ArrayList<Request> requests = new ArrayList<>();
         static int networkFailures;
+        static boolean rangeReply;
         public FakeWorker(Context context, WorkerParameters parameters) { super(context, parameters); }
         @Override protected Response request(String url) throws IOException {
-            urls.add(url);
+            return reply(new Request.Builder().url(url).build());
+        }
+        @Override protected java.util.List<String> downloadRoutes(UpdateManifest manifest) { return RuntimeTransfer.routes(manifest.apkUrl, 0); }
+        @Override protected Response requestDownload(Request request) throws IOException { return reply(request); }
+        private Response reply(Request request) throws IOException {
+            urls.add(request.url().toString()); requests.add(request);
             if (networkFailures > 0) { networkFailures--; throw new IOException("Test network failure"); }
             if (bodies.isEmpty()) throw new IOException("No test response");
-            return new Response.Builder().request(new Request.Builder().url(url).build()).protocol(Protocol.HTTP_1_1)
-                    .code(200).message("OK").body(ResponseBody.create(MediaType.get("application/octet-stream"), bodies.remove())).build();
+            boolean partial = rangeReply && request.header("Range") != null;
+            Response.Builder response = new Response.Builder().request(request).protocol(Protocol.HTTP_1_1)
+                    .code(partial ? 206 : 200).message("OK").body(ResponseBody.create(MediaType.get("application/octet-stream"), bodies.remove()));
+            if (partial) response.header("Content-Range", "bytes 2-2/3");
+            return response.build();
         }
     }
 }

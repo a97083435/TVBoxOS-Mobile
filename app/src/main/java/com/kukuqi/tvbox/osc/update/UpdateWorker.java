@@ -6,10 +6,14 @@ import androidx.work.Worker;
 import androidx.work.WorkerParameters;
 import com.kukuqi.tvbox.osc.BuildConfig;
 import com.kukuqi.tvbox.osc.util.UpdateManifest;
+import com.kukuqi.tvbox.osc.util.RuntimeDownload;
+import com.kukuqi.tvbox.osc.util.RuntimeTransfer;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.TimeUnit;
 import okhttp3.Call;
 import okhttp3.OkHttpClient;
@@ -19,10 +23,16 @@ import okhttp3.Response;
 /** Persistent background work, independent of the About view or current Activity. */
 public class UpdateWorker extends Worker {
     private static final String MANIFEST_URL = "https://raw.githubusercontent.com/kukuqi666/TVboxOSC/main/update.json";
-    // Use the same mirror-first order for every update check and APK download.
+    // Metadata uses a short deadline; APKs have an independent resumable transfer budget.
     private static final String[] ROUTES = {"https://gh-proxy.com/", ""};
-    private final OkHttpClient client = new OkHttpClient.Builder().connectTimeout(12, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS).callTimeout(2, TimeUnit.MINUTES).build();
+    private static final ReentrantLock DOWNLOAD_LOCK = new ReentrantLock();
+    private final OkHttpClient client = new OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS).callTimeout(12, TimeUnit.SECONDS).build();
+    private final OkHttpClient downloadClient = client.newBuilder().readTimeout(20, TimeUnit.SECONDS)
+            .callTimeout(20, TimeUnit.MINUTES).followSslRedirects(false).build();
+    private final OkHttpClient probeClient = downloadClient.newBuilder().connectTimeout(4, TimeUnit.SECONDS)
+            .readTimeout(4, TimeUnit.SECONDS).callTimeout(7, TimeUnit.SECONDS).build();
+    private final Set<Call> downloadCalls = ConcurrentHashMap.newKeySet(), probeCalls = ConcurrentHashMap.newKeySet();
     private volatile Call running;
     private final UpdateStore store;
 
@@ -36,10 +46,21 @@ public class UpdateWorker extends Worker {
             return getInputData().getBoolean("download", false) ? download() : check();
         } catch (Exception error) {
             android.util.Log.w("AppUpdate", "Background update failed", error);
-            if (!isStopped()) store.state(UpdateStore.ERROR, error instanceof IllegalStateException
-                    ? error.getMessage() : "更新暂不可用，请检查网络后重试", 0);
+            if (!isStopped()) {
+                UpdateManifest manifest = store.manifest();
+                long retained = manifest == null ? 0 : store.partial(manifest).length();
+                boolean resumable = getInputData().getBoolean("download", false) && manifest != null
+                        && retained > 0 && retained < manifest.size;
+                store.state(UpdateStore.ERROR, error instanceof IllegalStateException ? error.getMessage()
+                        : resumable ? "下载中断，已保留进度，重试将继续下载" : "更新暂不可用，请检查网络后重试",
+                        resumable ? (int) (retained * 100 / manifest.size) : 0);
+            }
             return !isStopped() && !(error instanceof IllegalStateException) && getRunAttemptCount() < 2 ? Result.retry() : Result.failure();
-        } finally { running = null; }
+        } finally {
+            running = null;
+            downloadCalls.forEach(Call::cancel); downloadCalls.clear();
+            probeCalls.forEach(Call::cancel); probeCalls.clear();
+        }
     }
 
     private Result check() throws Exception {
@@ -78,6 +99,14 @@ public class UpdateWorker extends Worker {
     }
 
     private Result download() throws Exception {
+        // A cancelled/replaced WorkManager task must release the shared partial file before its replacement writes.
+        while (!DOWNLOAD_LOCK.tryLock(200, TimeUnit.MILLISECONDS)) if (isStopped()) return Result.failure();
+        try { return downloadLocked(); }
+        finally { DOWNLOAD_LOCK.unlock(); }
+    }
+
+    private Result downloadLocked() throws Exception {
+        if (isStopped()) return Result.failure();
         boolean manual = getInputData().getBoolean("manual", false);
         if (!manual && !store.autoDownload()) return Result.success();
         if (store.hasReadyUpdate()) return Result.success();
@@ -86,33 +115,21 @@ public class UpdateWorker extends Worker {
         File apk = store.apk(manifest);
         File directory = apk.getParentFile();
         if (!directory.isDirectory() && !directory.mkdirs()) throw new IOException("无法创建下载目录");
-        // Distinct files prevent a cancelled Wi-Fi worker from deleting a replacement task's download.
-        File part = new File(directory, "TVboxOSC-v" + manifest.version + "." + getId() + ".part.apk");
+        File part = store.partial(manifest);
+        File[] stale = directory.listFiles((dir, name) -> (name.endsWith(".part") || name.endsWith(".part.apk"))
+                && !name.equals(part.getName()));
+        if (stale != null) for (File file : stale) file.delete();
+        RuntimeTransfer transfer = new RuntimeTransfer(this::requestDownload);
         Exception last = null;
-        for (String route : ROUTES) {
+        store.state(UpdateStore.DOWNLOADING, "正在选择下载线路…", (int) Math.min(100, part.length() * 100 / manifest.size));
+        for (String route : downloadRoutes(manifest)) {
             if (isStopped()) return Result.failure();
-            store.state(UpdateStore.DOWNLOADING, "正在后台下载 v" + manifest.version, 0);
+            store.state(UpdateStore.DOWNLOADING, "正在连接 · " + RuntimeTransfer.routeName(route), (int) (part.length() * 100 / manifest.size));
             try {
-                try (Response response = request(route + manifest.apkUrl)) {
-                    if (!response.isSuccessful() || response.body() == null) throw new IOException("无法下载更新包");
-                    long downloaded = 0, lastProgress = 0;
-                    try (InputStream input = response.body().byteStream(); FileOutputStream output = new FileOutputStream(part)) {
-                        byte[] buffer = new byte[32768];
-                        int count;
-                        while ((count = input.read(buffer)) != -1) {
-                            if (isStopped()) return Result.failure();
-                            downloaded += count;
-                            if (downloaded > manifest.size) throw new IOException("更新包大小异常");
-                            output.write(buffer, 0, count);
-                            long now = System.currentTimeMillis();
-                            if (now - lastProgress >= 250) {
-                                int percent = (int) (downloaded * 100 / manifest.size);
-                                store.state(UpdateStore.DOWNLOADING, "正在后台下载 v" + manifest.version + " · " + percent + "%", percent);
-                                lastProgress = now;
-                            }
-                        }
-                    }
-                }
+                transfer.download(route, part, manifest.size, message -> {
+                    if (!isStopped()) store.state(UpdateStore.DOWNLOADING, "正在后台下载 v" + manifest.version + " · " + message,
+                            (int) Math.min(100, part.length() * 100 / manifest.size));
+                }, this::isStopped);
                 if (isStopped()) return Result.failure();
                 store.state(UpdateStore.VERIFYING, "下载完成，正在校验更新包…", 100);
                 manifest.verifyDownload(part);
@@ -125,7 +142,10 @@ public class UpdateWorker extends Worker {
                 return Result.success();
             } catch (Exception error) {
                 last = error;
-            } finally { part.delete(); }
+                // Keep network failures resumable, but never reuse a complete file that failed integrity/signature checks.
+                if (error instanceof SecurityException || error instanceof IllegalStateException || part.length() >= manifest.size) part.delete();
+                if (isStopped()) return Result.failure();
+            }
         }
         throw last == null ? new IOException("下载失败") : last;
     }
@@ -137,9 +157,26 @@ public class UpdateWorker extends Worker {
         return running.execute();
     }
 
+    protected Response requestDownload(Request request) throws IOException { return execute(downloadClient, request, downloadCalls); }
+
+    protected List<String> downloadRoutes(UpdateManifest manifest) throws Exception {
+        List<String> routes = RuntimeTransfer.routes(manifest.apkUrl, RuntimeDownload.routeMode());
+        if (RuntimeDownload.routeMode() != 0 || store.partial(manifest).length() == manifest.size) return routes;
+        try { return UpdateRouteSelector.select(routes, manifest.size, request -> execute(probeClient, request, probeCalls), this::isStopped); }
+        finally { probeCalls.forEach(Call::cancel); }
+    }
+
+    private Response execute(OkHttpClient client, Request request, Set<Call> calls) throws IOException {
+        Call call = client.newCall(request); calls.add(call);
+        if (isStopped() || Thread.currentThread().isInterrupted()) { call.cancel(); throw new IOException("更新任务已停止"); }
+        return call.execute();
+    }
+
     @Override public void onStopped() {
         Call call = running;
         if (call != null) call.cancel();
+        downloadCalls.forEach(Call::cancel);
+        probeCalls.forEach(Call::cancel);
         super.onStopped();
     }
 }

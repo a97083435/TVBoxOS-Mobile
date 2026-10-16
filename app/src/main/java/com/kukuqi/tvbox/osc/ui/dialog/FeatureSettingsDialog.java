@@ -509,7 +509,7 @@ public final class FeatureSettingsDialog {
         moduleNote.setTextSize(13); moduleNote.setMinHeight(0); moduleNote.setPadding(panel.dp(12), panel.dp(8), panel.dp(12), panel.dp(8));
         TextView bdjNote = panel.row("BD-J 提供 Java 运行时；完整蓝光菜单仍需适配播放器", null);
         bdjNote.setTextSize(13); bdjNote.setMinHeight(0); bdjNote.setPadding(panel.dp(12), panel.dp(8), panel.dp(12), panel.dp(8));
-        panel.choice("模块下载线路", new String[]{"自动（镜像优先）", "GitHub 直连", "加速线路 1", "加速线路 2"}, new int[]{0, 1, 2, 3},
+        panel.choice("应用更新 / 模块下载线路", new String[]{"自动", "GitHub 直连", "加速线路 1", "加速线路 2"}, new int[]{0, 1, 2, 3},
                 com.kukuqi.tvbox.osc.util.RuntimeDownload::routeMode,
                 value -> Hawk.put(com.kukuqi.tvbox.osc.util.RuntimeDownload.ROUTE_KEY, value));
         panel.row("模块下载地址", () -> edit(activity, "模块下载地址", "填写 HTTPS 模块目录地址（catalog.json）；留空恢复本项目 GitHub Releases。",

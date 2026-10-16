@@ -30,6 +30,9 @@ public final class UpdateStore {
     public File apk(UpdateManifest manifest) {
         return new File(context.getFilesDir(), "updates/TVboxOSC-v" + manifest.version + ".apk");
     }
+    public File partial(UpdateManifest manifest) {
+        return new File(context.getFilesDir(), "updates/" + manifest.sha256 + ".part");
+    }
     public boolean hasReadyUpdate() {
         UpdateManifest manifest = manifest();
         return READY.equals(state()) && manifest != null && manifest.isNewer(BuildConfig.VERSION_CODE)

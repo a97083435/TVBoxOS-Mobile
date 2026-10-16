@@ -9,6 +9,7 @@ import java.net.URI;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Consumer;
+import java.util.function.BooleanSupplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import okhttp3.OkHttpClient;
@@ -20,9 +21,11 @@ public final class RuntimeTransfer {
     public static final String PRIMARY = "https://gh-proxy.com/";
     public static final String SECONDARY = "https://ghfast.top/";
     private static final Pattern RANGE = Pattern.compile("bytes (\\d+)-(\\d+)/(\\d+)");
-    private final OkHttpClient client;
+    @FunctionalInterface public interface Requester { Response execute(Request request) throws IOException; }
+    private final Requester requester;
 
-    RuntimeTransfer(OkHttpClient client) { this.client = client; }
+    RuntimeTransfer(OkHttpClient client) { this(request -> client.newCall(request).execute()); }
+    public RuntimeTransfer(Requester requester) { this.requester = requester; }
 
     public static List<String> routes(String url, int mode) {
         String canonical = url;
@@ -55,8 +58,8 @@ public final class RuntimeTransfer {
     }
 
     Response request(String url) throws IOException {
-        Response response = client.newCall(new Request.Builder().url(url).header("User-Agent", "TVboxOSC")
-                .header("Accept-Encoding", "identity").build()).execute();
+        Response response = requester.execute(new Request.Builder().url(url).header("User-Agent", "TVboxOSC")
+                .header("Accept-Encoding", "identity").build());
         if (!response.isSuccessful() || response.body() == null) {
             int code = response.code(); response.close(); throw new IOException("下载失败 HTTP " + code);
         }
@@ -64,13 +67,18 @@ public final class RuntimeTransfer {
     }
 
     void download(String url, File part, long size, Consumer<String> progress) throws IOException {
+        download(url, part, size, progress, () -> false);
+    }
+
+    public void download(String url, File part, long size, Consumer<String> progress, BooleanSupplier cancelled) throws IOException {
+        if (cancelled.getAsBoolean() || Thread.currentThread().isInterrupted()) throw new InterruptedIOException("下载已取消");
         long offset = part.isFile() ? part.length() : 0;
         if (offset > size) { if (!part.delete()) throw new IOException("无法重置下载缓存"); offset = 0; }
         if (offset == size) return; // Still requires SHA-256, APK and signer verification by the caller.
         Request.Builder request = new Request.Builder().url(url).header("User-Agent", "TVboxOSC")
                 .header("Accept-Encoding", "identity");
         if (offset > 0) request.header("Range", "bytes=" + offset + "-");
-        try (Response response = client.newCall(request.build()).execute()) {
+        try (Response response = requester.execute(request.build())) {
             if (!response.isSuccessful() || response.body() == null) throw new IOException("下载失败 HTTP " + response.code());
             if (response.code() == 206) {
                 Matcher range = RANGE.matcher(response.header("Content-Range", ""));
@@ -86,7 +94,7 @@ public final class RuntimeTransfer {
                 byte[] buffer = new byte[32768]; int count;
                 progress.accept(routeName(url) + " · " + (offset > 0 ? "正在续传 " : "正在下载 ") + total * 100 / size + "%");
                 while ((count = in.read(buffer)) != -1) {
-                    if (Thread.currentThread().isInterrupted()) throw new InterruptedIOException("下载已取消");
+                    if (cancelled.getAsBoolean() || Thread.currentThread().isInterrupted()) throw new InterruptedIOException("下载已取消");
                     total += count;
                     if (total > size) throw new IOException("模块长度超出目录声明");
                     out.write(buffer, 0, count);
