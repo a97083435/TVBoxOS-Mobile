@@ -33,8 +33,8 @@ android {
         minSdkVersion 24
         targetSdkVersion 34
         buildConfigField 'String', 'RUNTIME_CATALOG_URL', groovy.json.JsonOutput.toJson(providers.gradleProperty('runtimeCatalogUrl').getOrElse('https://github.com/kukuqi666/TVboxOSC/releases/latest/download/catalog.json'))
-        versionCode 305
-        versionName '3.0.5'
+        versionCode 306
+        versionName '3.0.6'
         multiDexEnabled true
         testInstrumentationRunner 'com.kukuqi.tvbox.osc.RegressionTestRunner'
         //设置room的Schema的位置
