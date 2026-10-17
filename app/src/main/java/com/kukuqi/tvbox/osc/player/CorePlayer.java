@@ -47,7 +47,11 @@ public final class CorePlayer extends AbstractPlayer implements PlayerManager.Ca
     }
     @Override public void initPlayer() {
         PlayerSetting.putEngine(engine);
-        com.kukuqi.tvbox.engine.setting.PreloadSetting.putEnabled(com.orhanobut.hawk.Hawk.get(com.kukuqi.tvbox.osc.util.HawkConfig.IJK_CACHE_PLAY, false));
+        boolean currentCache = com.orhanobut.hawk.Hawk.get(com.kukuqi.tvbox.osc.util.HawkConfig.IJK_CACHE_PLAY, false);
+        boolean nextEpisode = com.orhanobut.hawk.Hawk.get(com.kukuqi.tvbox.osc.util.HawkConfig.NEXT_EPISODE_PRELOAD, true);
+        com.kukuqi.tvbox.engine.setting.PreloadSetting.putEnabled(currentCache || nextEpisode);
+        com.kukuqi.tvbox.engine.setting.PreloadSetting.putCurrentEnabled(currentCache);
+        com.kukuqi.tvbox.engine.setting.PreloadSetting.putNextEpisodeEnabled(nextEpisode);
         manager = new PlayerManager(this);
         manager.setDecode(softwareDecode ? com.kukuqi.tvbox.engine.player.engine.PlayerEngine.SOFT : com.kukuqi.tvbox.engine.player.engine.PlayerEngine.HARD);
         onPlayerRebuild(manager.getPlayer());
@@ -86,7 +90,10 @@ public final class CorePlayer extends AbstractPlayer implements PlayerManager.Ca
         subtitleVisible = enabled;
         // Exo follows OSC's visibility toggle: keep decoding cues so a long caption can reappear.
         // MPV paints into the video surface, so its native subtitle track must be disabled.
-        if (engine == PlayerSetting.ENGINE_MPV && manager != null && !manager.isReleased()) player().setTrackSelectionParameters(player().getTrackSelectionParameters().buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !enabled).build());
+        if (engine == PlayerSetting.ENGINE_MPV && manager != null && !manager.isReleased()) {
+            player().setTrackSelectionParameters(player().getTrackSelectionParameters().buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !enabled).build());
+            manager.applySubtitleStyle();
+        }
         refreshRenderedSubtitles();
     }
     public void setRenderedSubtitleEnabled(java.util.function.BooleanSupplier value) { renderSubtitleEnabled = value; refreshRenderedSubtitles(); }

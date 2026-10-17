@@ -1,7 +1,6 @@
 package com.kukuqi.tvbox.osc;
 
 import android.test.InstrumentationTestCase;
-import androidx.collection.ArrayMap;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -165,9 +164,9 @@ public class CollectionSourceRegressionTest extends InstrumentationTestCase {
     }
 
     public void testCollectionActionReplacesOldQueryAndPreservesToken() throws Exception {
-        Site site = Site.objectFrom(JsonParser.parseString("{\"key\":\"query\",\"type\":1,\"api\":\"" + base + "/json?token=retained&ac=list&pg=99\"}"), "");
-        ArrayMap<String, String> params = new ArrayMap<>(); params.put("ac", "detail"); params.put("pg", "2");
-        SiteApi.call(site, params);
+        VodConfig.get().accept(base + "/query-config", "query", JsonParser.parseString(
+                "{\"sites\":[{\"key\":\"query\",\"type\":1,\"api\":\"" + base + "/json?token=retained&ac=list&pg=99\"}]}").getAsJsonObject());
+        SiteApi.categoryContent("query", "7", "2", false, new HashMap<>());
         assertEquals("retained", lastQuery.get("token")); assertEquals("detail", lastQuery.get("ac"));
         assertEquals("2", lastQuery.get("pg")); assertEquals(1, actionCount);
     }

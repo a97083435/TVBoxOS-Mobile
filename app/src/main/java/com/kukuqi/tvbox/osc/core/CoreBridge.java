@@ -79,12 +79,17 @@ public final class CoreBridge {
             object.addProperty("jx", VodConfig.hasParse() ? 1 : 0);
             return Result.objectFrom(object.toString());
         }
-        return SiteApi.playerContent(key, flag, url);
+        return SourceAccess.call(key, () -> SiteApi.playerContent(key, flag, url));
     }
 
     public static void selectHome(String key) {
         Site site = VodConfig.get().getSite(key);
         if (!site.isEmpty()) VodConfig.get().setHome(site);
+    }
+
+    public static Result preload(String key, String flag, String url) throws Exception {
+        if (VideoLinkDialog.SOURCE.equals(key)) return player(key, flag, url);
+        return SourceAccess.call(key, () -> SiteApi.preloadContent(key, flag, url));
     }
 
     public static void selectParse(String name) {

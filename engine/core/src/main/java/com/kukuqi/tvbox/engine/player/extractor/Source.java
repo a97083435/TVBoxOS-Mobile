@@ -78,6 +78,10 @@ public class Source {
         return extractor == null ? url : extractor.fetch(result);
     }
 
+    public boolean requiresExtraction(Result result) {
+        return getExtractor(result.getUrl().uri()) != null;
+    }
+
     public void stop() {
         if (extractors == null) return;
         extractors.forEach(Extractor::stop);

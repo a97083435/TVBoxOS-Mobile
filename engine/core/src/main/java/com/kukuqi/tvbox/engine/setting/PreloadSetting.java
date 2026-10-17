@@ -20,6 +20,8 @@ public class PreloadSetting {
     public static void putEnabled(boolean preload) {
         Prefers.put("preload", preload);
     }
+    public static boolean isCurrentEnabled() { return Prefers.getBoolean("preload_current", isEnabled()); }
+    public static void putCurrentEnabled(boolean enabled) { Prefers.put("preload_current", enabled); }
 
     public static boolean isNextEpisodeEnabled() {
         return Prefers.getBoolean("preload_next_episode");

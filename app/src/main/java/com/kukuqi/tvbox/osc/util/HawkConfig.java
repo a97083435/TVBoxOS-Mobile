@@ -40,6 +40,7 @@ public class HawkConfig {
     public static final String NOW_DATE = "now_date"; //当前日期
     public static final String REMOTE_TVBOX = "remote_tvbox_host";
     public static final String IJK_CACHE_PLAY = "ijk_cache_play";
+    public static final String NEXT_EPISODE_PRELOAD = "next_episode_preload";
     /**
      * 无痕浏览
      */

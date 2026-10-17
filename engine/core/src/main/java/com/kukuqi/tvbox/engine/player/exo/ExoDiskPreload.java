@@ -37,7 +37,7 @@ public class ExoDiskPreload {
     private void restart() {
         stopManager();
         if (player == null || mediaItem == null) return;
-        if (!PreloadSetting.isEnabled()) return;
+        if (!PreloadSetting.isEnabled() || !PreloadSetting.isCurrentEnabled()) return;
         manager = createManager(mediaItem);
         player.setPriorityTaskManager(priorityTaskManager);
         manager.start(player, mediaItem, createOptions());

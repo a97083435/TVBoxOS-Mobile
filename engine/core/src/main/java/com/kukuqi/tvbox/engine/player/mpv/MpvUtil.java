@@ -64,6 +64,12 @@ public final class MpvUtil {
         player.setSubtitleOptions(buildSubtitleOptions());
     }
 
+    static void setSubtitleStyle(MpvPlayer player, Integer explicitTrack) {
+        int mode = player.getTrackSelectionParameters().disabledTrackTypes.contains(androidx.media3.common.C.TRACK_TYPE_TEXT)
+                ? SubtitleSetting.SECONDARY_MODE_OFF : explicitTrack == null ? SubtitleSetting.getSecondaryMode() : explicitTrack;
+        player.setSubtitleOptions(buildSubtitleOptions(mode));
+    }
+
     private static MpvPlayerConfig buildConfig() {
         File configDir = Path.mpv();
         File cacheDir = Path.mpvCache();
@@ -89,7 +95,9 @@ public final class MpvUtil {
     }
 
     private static MpvSubtitleOptions buildSubtitleOptions() {
-        int secondary = SubtitleSetting.getSecondaryMode();
+        return buildSubtitleOptions(SubtitleSetting.getSecondaryMode());
+    }
+    private static MpvSubtitleOptions buildSubtitleOptions(int secondary) {
         // The bundled MPV API predates the default-mode sentinel; retain its disabled default.
         if (secondary == SubtitleSetting.SECONDARY_MODE_DEFAULT) secondary = SubtitleSetting.SECONDARY_MODE_OFF;
         MpvSubtitleOptions.Builder builder = new MpvSubtitleOptions.Builder().setPosition(getSubtitlePosition()).setScale(getSubtitleScale()).setSecondarySubtitle(secondary, SubtitleSetting.getSecondaryPosition(), SubtitleSetting.isStyleForced());

@@ -22,7 +22,7 @@ import com.kukuqi.tvbox.osc.receiver.BatteryReceiver;
 import com.kukuqi.tvbox.osc.ui.dialog.AllLocalSeriesDialog;
 import com.kukuqi.tvbox.osc.util.HawkConfig;
 import com.kukuqi.tvbox.osc.util.PlayerHelper;
-import com.google.common.reflect.TypeToken;
+import com.google.gson.reflect.TypeToken;
 import com.lxj.xpopup.XPopup;
 import com.lxj.xpopup.core.BasePopupView;
 import com.lxj.xpopup.enums.PopupPosition;

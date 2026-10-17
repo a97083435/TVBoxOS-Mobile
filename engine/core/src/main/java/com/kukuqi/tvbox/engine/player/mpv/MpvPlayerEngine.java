@@ -21,6 +21,7 @@ public class MpvPlayerEngine implements PlayerEngine, Player.Listener {
     private PlaySpec spec;
     private int generation;
     private boolean released;
+    private androidx.media3.common.TrackSelectionOverride secondarySelection;
     private static final java.util.concurrent.ExecutorService discWorker = java.util.concurrent.Executors.newSingleThreadExecutor();
 
     public MpvPlayerEngine(int decode, Player.Listener listener) {
@@ -65,7 +66,34 @@ public class MpvPlayerEngine implements PlayerEngine, Player.Listener {
 
     @Override
     public void applySubtitleStyle() {
-        MpvUtil.setSubtitleStyle(player);
+        Integer id = null;
+        if (secondarySelection != null) {
+            try { id = Integer.parseInt(secondarySelection.mediaTrackGroup.getFormat(secondarySelection.trackIndices.get(0)).id); }
+            catch (RuntimeException invalid) { secondarySelection = null; }
+        }
+        MpvUtil.setSubtitleStyle(player, id);
+    }
+
+    @Override public SecondarySubtitleState getSecondarySubtitleState() {
+        androidx.media3.common.TrackSelectionOverride primary = null;
+        java.util.List<androidx.media3.common.TrackSelectionOverride> candidates = new java.util.ArrayList<>();
+        for (Tracks.Group group : player.getCurrentTracks().getGroups()) {
+            if (group.getType() != androidx.media3.common.C.TRACK_TYPE_TEXT) continue;
+            for (int i = 0; i < group.length; i++) {
+                if (!group.isTrackSupported(i)) continue;
+                var selection = new androidx.media3.common.TrackSelectionOverride(group.getMediaTrackGroup(), i);
+                if (group.isTrackSelected(i)) primary = selection;
+                else candidates.add(selection);
+            }
+        }
+        var selected = candidates.contains(secondarySelection) ? secondarySelection : null;
+        return new SecondarySubtitleState(primary, selected, candidates, false);
+    }
+
+    @Override public void setSecondarySubtitleSelection(androidx.media3.common.TrackSelectionOverride selection) {
+        if (selection != null && !getSecondarySubtitleState().secondaryCandidates().contains(selection)) return;
+        secondarySelection = selection;
+        applySubtitleStyle();
     }
 
     @Override
@@ -84,11 +112,17 @@ public class MpvPlayerEngine implements PlayerEngine, Player.Listener {
     @Override
     public void onTracksChanged(@NonNull Tracks tracks) {
         effect.applyVideoEffect();
+        if (secondarySelection != null && getSecondarySubtitleState().explicitSelection() == null) {
+            secondarySelection = null;
+            applySubtitleStyle();
+        }
     }
 
     @Override
     public void start(PlaySpec spec, long startPositionMs) {
         this.spec = spec;
+        secondarySelection = null;
+        applySubtitleStyle();
         int request = ++generation;
         if (com.kukuqi.tvbox.engine.runtime.BdjSupport.shouldPrepare(spec.getUrl())) {
             discWorker.execute(() -> {

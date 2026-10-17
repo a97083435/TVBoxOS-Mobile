@@ -146,7 +146,7 @@ public class DetailActivity extends BaseVbActivity<ActivityDetailBinding> {
 
     @Override
     protected void init() {
-
+        if (getIntent().getBooleanExtra("media_autoplay", false)) showPreview = true;
         initView();
         initViewModel();
         initData();
@@ -158,6 +158,23 @@ public class DetailActivity extends BaseVbActivity<ActivityDetailBinding> {
                 .statusBarDarkFont(false)
                 .init();
         toggleScreenShotListen(true);
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if (!intent.getBooleanExtra("media_autoplay", false)) return;
+        setIntent(intent);
+        sourceViewModel.cancelSearch();
+        hadQuickStart = false;
+        previewVodInfo = null;
+        preFlag = "";
+        if (playFragment == null) {
+            showPreview = true;
+            mBinding.previewPlayerPlace.setVisibility(View.VISIBLE);
+            playFragment = new PlayFragment();
+            getSupportFragmentManager().beginTransaction().add(R.id.previewPlayer, playFragment).commitNow();
+        } else if (playFragment.getPlayer() != null) playFragment.getPlayer().pause();
+        initData();
     }
 
     @Override
@@ -255,26 +272,9 @@ public class DetailActivity extends BaseVbActivity<ActivityDetailBinding> {
             EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_QUICK_SEARCH, quickSearchData));
             EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_QUICK_SEARCH_WORD, quickSearchWord));
             quickSearchDialog.show();
-            if (pauseRunnable != null && pauseRunnable.size() > 0) {
-                searchExecutorService = Executors.newFixedThreadPool(5);
-                for (Runnable runnable : pauseRunnable) {
-                    searchExecutorService.execute(runnable);
-                }
-                pauseRunnable.clear();
-                pauseRunnable = null;
-            }
-            quickSearchDialog.setOnDismissListener(new DialogInterface.OnDismissListener() {
-                @Override
-                public void onDismiss(DialogInterface dialog) {
-                    try {
-                        if (searchExecutorService != null) {
-                            pauseRunnable = searchExecutorService.shutdownNow();
-                            searchExecutorService = null;
-                        }
-                    } catch (Throwable th) {
-                        th.printStackTrace();
-                    }
-                }
+            quickSearchDialog.setOnDismissListener(dialog -> {
+                sourceViewModel.cancelSearch();
+                hadQuickStart = false;
             });
         });
         mBinding.tvChangeLine.setOnClickListener(v -> {
@@ -387,7 +387,6 @@ public class DetailActivity extends BaseVbActivity<ActivityDetailBinding> {
         mCheckSources = SearchHelper.getSourcesForSearch();
     }
 
-    private List<Runnable> pauseRunnable = null;
 
     private void jumpToPlay() {
         if (vodInfo != null && vodInfo.seriesMap.get(vodInfo.playFlag).size() > 0) {
@@ -451,6 +450,7 @@ public class DetailActivity extends BaseVbActivity<ActivityDetailBinding> {
 
     private void initViewModel() {
         sourceViewModel = new ViewModelProvider(this).get(SourceViewModel.class);
+        sourceViewModel.quickSearchResult.observe(this, this::searchData);
         sourceViewModel.detailResult.observe(this, new Observer<AbsXml>() {
             @Override
             public void onChanged(AbsXml absXml) {
@@ -506,7 +506,8 @@ public class DetailActivity extends BaseVbActivity<ActivityDetailBinding> {
                         mBinding.mGridViewFlag.scrollToPosition(flagScrollTo);
 
                         refreshList();
-                        if (showPreview) {
+                        if (showPreview || getIntent().getBooleanExtra("media_autoplay", false)) {
+                            getIntent().removeExtra("media_autoplay");
                             jumpToPlay();
                             mBinding.previewPlayer.setVisibility(View.VISIBLE);
                             toggleSubtitleTextSize();
@@ -588,12 +589,6 @@ public class DetailActivity extends BaseVbActivity<ActivityDetailBinding> {
                 String word = (String) event.obj;
                 switchSearchWord(word);
             }
-        } else if (event.type == RefreshEvent.TYPE_QUICK_SEARCH_RESULT) {
-            try {
-                searchData(event.obj == null ? null : (AbsXml) event.obj);
-            } catch (Exception e) {
-                searchData(null);
-            }
         }
     }
 
@@ -601,9 +596,9 @@ public class DetailActivity extends BaseVbActivity<ActivityDetailBinding> {
     private boolean hadQuickStart = false;
     private final List<Movie.Video> quickSearchData = new ArrayList<>();
     private final List<String> quickSearchWord = new ArrayList<>();
-    private ExecutorService searchExecutorService = null;
 
     private void switchSearchWord(String word) {
+        sourceViewModel.cancelSearch();
         OkGo.getInstance().cancelTag("quick_search");
         quickSearchData.clear();
         searchTitle = word;
@@ -615,6 +610,7 @@ public class DetailActivity extends BaseVbActivity<ActivityDetailBinding> {
         if (hadQuickStart)
             return;
         hadQuickStart = true;
+        sourceViewModel.cancelSearch();
         OkGo.getInstance().cancelTag("quick_search");
         quickSearchWord.clear();
         searchTitle = mVideo.name;
@@ -657,15 +653,7 @@ public class DetailActivity extends BaseVbActivity<ActivityDetailBinding> {
     }
 
     private void searchResult() {
-        try {
-            if (searchExecutorService != null) {
-                searchExecutorService.shutdownNow();
-                searchExecutorService = null;
-            }
-        } catch (Throwable th) {
-            th.printStackTrace();
-        }
-        searchExecutorService = Executors.newFixedThreadPool(5);
+        sourceViewModel.cancelSearch();
         List<SourceBean> searchRequestList = new ArrayList<>();
         searchRequestList.addAll(ApiConfig.get().getSourceBeanList());
         SourceBean home = ApiConfig.get().getHomeSourceBean();
@@ -682,14 +670,7 @@ public class DetailActivity extends BaseVbActivity<ActivityDetailBinding> {
             }
             siteKey.add(bean.getKey());
         }
-        for (String key : siteKey) {
-            searchExecutorService.execute(new Runnable() {
-                @Override
-                public void run() {
-                    sourceViewModel.getQuickSearch(key, searchTitle);
-                }
-            });
-        }
+        sourceViewModel.startSearch(siteKey, searchTitle, true);
     }
 
     private void searchData(AbsXml absXml) {
@@ -730,14 +711,7 @@ public class DetailActivity extends BaseVbActivity<ActivityDetailBinding> {
             mHomeKeyReceiver = null;
         }
 
-        try {
-            if (searchExecutorService != null) {
-                searchExecutorService.shutdownNow();
-                searchExecutorService = null;
-            }
-        } catch (Throwable th) {
-            th.printStackTrace();
-        }
+        if (sourceViewModel != null) sourceViewModel.cancelSearch();
         OkGo.getInstance().cancelTag("fenci");
         OkGo.getInstance().cancelTag("detail");
         OkGo.getInstance().cancelTag("quick_search");

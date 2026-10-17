@@ -17,6 +17,7 @@ public final class NodeLoader {
     private static final OkHttpClient client = new OkHttpClient.Builder().connectTimeout(2, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build();
     private ServiceConnection connection;
     private volatile String[] endpoint;
+    private CountDownLatch processExit;
     private String recent;
     public static boolean accepts(String api) {
         if (api.startsWith("nodejs:") || api.startsWith("node:")) return true;
@@ -29,25 +30,38 @@ public final class NodeLoader {
         RuntimeModules.loader(App.get(), RuntimeModule.NODEJS);
         if (endpoint != null) return;
         if (connection != null) { App.get().unbindService(connection); connection = null; }
+        // Unbinding destroys the disposable process asynchronously. Do not rebind to
+        // the old service while its onDestroy is still about to terminate Node.
+        if (processExit != null && !processExit.await(5, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("Node.js 上次进程尚未退出，请稍后重试");
+        }
+        processExit = null;
         CountDownLatch ready = new CountDownLatch(1);
+        CountDownLatch exited = new CountDownLatch(1);
+        AtomicReference<String[]> address = new AtomicReference<>();
         AtomicReference<String> error = new AtomicReference<>();
         Messenger receiver = new Messenger(new Handler(Looper.getMainLooper(), message -> {
-            endpoint = message.getData().getStringArray("endpoint"); error.set(message.getData().getString("error")); ready.countDown(); return true;
+            address.set(message.getData().getStringArray("endpoint")); error.set(message.getData().getString("error")); ready.countDown(); return true;
         }));
         connection = new ServiceConnection() {
             @Override public void onServiceConnected(ComponentName name, IBinder binder) {
                 Message message = Message.obtain(null, 1); message.replyTo = receiver;
-                try { new Messenger(binder).send(message); } catch (RemoteException failure) { error.set("Node.js 连接断开"); ready.countDown(); }
+                try {
+                    binder.linkToDeath(exited::countDown, 0);
+                    new Messenger(binder).send(message);
+                } catch (RemoteException failure) { exited.countDown(); error.set("Node.js 连接断开"); ready.countDown(); }
             }
-            @Override public void onServiceDisconnected(ComponentName name) { endpoint = null; error.set("Node.js 进程已退出"); ready.countDown(); }
-            @Override public void onNullBinding(ComponentName name) { error.set("Node.js 服务不可用"); ready.countDown(); }
+            @Override public void onServiceDisconnected(ComponentName name) { if (connection == this) endpoint = null; exited.countDown(); error.set("Node.js 进程已退出"); ready.countDown(); }
+            @Override public void onNullBinding(ComponentName name) { exited.countDown(); error.set("Node.js 服务不可用"); ready.countDown(); }
         };
         if (!App.get().bindService(new Intent(App.get(), NodeService.class), connection, Context.BIND_AUTO_CREATE)) {
             connection = null; throw new IllegalStateException("无法启动 Node.js 服务");
         }
-        if (!ready.await(20, TimeUnit.SECONDS) || endpoint == null) {
+        processExit = exited;
+        if (!ready.await(20, TimeUnit.SECONDS) || address.get() == null) {
             clear(); throw new IllegalStateException(error.get() == null ? "Node.js 启动超时" : error.get());
         }
+        endpoint = address.get();
         Exception last = null;
         for (int i = 0; i < 100; i++) {
             try { rpc("", "ping"); return; }

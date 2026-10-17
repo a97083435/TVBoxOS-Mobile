@@ -63,6 +63,11 @@ public class SourceViewModel extends ViewModel {
     public MutableLiveData<AbsXml> quickSearchResult;
     public MutableLiveData<AbsXml> detailResult;
     public MutableLiveData<JSONObject> playResult;
+    private final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final com.kukuqi.tvbox.osc.core.SearchDispatcher<AbsXml> searches =
+            new com.kukuqi.tvbox.osc.core.SearchDispatcher<>(command -> main.post(command), 15000);
+    private final java.util.concurrent.atomic.AtomicInteger playEpoch = new java.util.concurrent.atomic.AtomicInteger();
+    private final java.util.concurrent.atomic.AtomicInteger detailEpoch = new java.util.concurrent.atomic.AtomicInteger();
 
     public SourceViewModel() {
         sortResult = new MutableLiveData<>();
@@ -79,7 +84,8 @@ public class SourceViewModel extends ViewModel {
     public void getSort(String sourceKey) {
         spThreadPool.execute(() -> {
             try {
-                com.kukuqi.tvbox.engine.bean.Result result = com.kukuqi.tvbox.engine.api.SiteApi.homeContent(com.kukuqi.tvbox.osc.core.CoreBridge.site(sourceKey));
+                com.kukuqi.tvbox.engine.bean.Result result = com.kukuqi.tvbox.osc.core.SourceAccess.call(sourceKey,
+                        () -> com.kukuqi.tvbox.engine.api.SiteApi.homeContent(com.kukuqi.tvbox.osc.core.CoreBridge.site(sourceKey)));
                 AbsSortXml categories = sortJson(sortResult, result.toString());
                 if (categories != null && Hawk.get(HawkConfig.HOME_REC, 1) == 1) {
                     AbsXml videos = json(null, result.toString(), sourceKey);
@@ -91,8 +97,10 @@ public class SourceViewModel extends ViewModel {
     }
     // categoryContent
     public void getList(MovieSort.SortData sortData, int page) {
+        String key = ApiConfig.get().getHomeSourceBean().getKey();
         spThreadPool.execute(() -> {
-            try { json(listResult, com.kukuqi.tvbox.engine.api.SiteApi.categoryContent(ApiConfig.get().getHomeSourceBean().getKey(), sortData.id, String.valueOf(page), true, sortData.filterSelect).toString(), ApiConfig.get().getHomeSourceBean().getKey()); }
+            try { json(listResult, com.kukuqi.tvbox.osc.core.SourceAccess.call(key,
+                    () -> com.kukuqi.tvbox.engine.api.SiteApi.categoryContent(key, sortData.id, String.valueOf(page), true, sortData.filterSelect)).toString(), key); }
             catch(Throwable e) { android.util.Log.e("TVboxCore", "category", e); listResult.postValue(null); }
         });
     }
@@ -104,9 +112,9 @@ public class SourceViewModel extends ViewModel {
     void getHomeRecList(SourceBean sourceBean, ArrayList<String> ids, HomeRecCallback callback) {
         spThreadPool.execute(() -> {
             try {
-                com.kukuqi.tvbox.engine.bean.Result result = sourceBean.getType() == 0 || sourceBean.getType() == 1
+                com.kukuqi.tvbox.engine.bean.Result result = com.kukuqi.tvbox.osc.core.SourceAccess.call(sourceBean.getKey(), () -> sourceBean.getType() == 0 || sourceBean.getType() == 1
                         ? com.kukuqi.tvbox.engine.api.SiteApi.detailContent(sourceBean.getKey(), TextUtils.join(",", ids))
-                        : com.kukuqi.tvbox.engine.api.SiteApi.homeContent(com.kukuqi.tvbox.osc.core.CoreBridge.site(sourceBean.getKey()));
+                        : com.kukuqi.tvbox.engine.api.SiteApi.homeContent(com.kukuqi.tvbox.osc.core.CoreBridge.site(sourceBean.getKey())));
                 AbsXml data = json(null, result.toString(), sourceBean.getKey());
                 callback.done(data == null || data.movie == null ? null : data.movie.videoList);
             } catch (Throwable failure) {
@@ -117,6 +125,7 @@ public class SourceViewModel extends ViewModel {
     }
     // detailContent
     public void getDetail(String sourceKey, String id) {
+        int request = detailEpoch.incrementAndGet();
         if (com.kukuqi.tvbox.osc.ui.dialog.VideoLinkDialog.SOURCE.equals(sourceKey)) {
             Movie.Video video = new Movie.Video();
             video.id = id; video.name = "链接播放"; video.sourceKey = sourceKey; video.pic = "";
@@ -126,12 +135,13 @@ public class SourceViewModel extends ViewModel {
             line.beanList = java.util.Collections.singletonList(new Movie.Video.UrlBean.UrlInfo.InfoBean("播放", id));
             video.urlBean.infoList = java.util.Collections.singletonList(line);
             AbsXml result = new AbsXml(); result.movie = new Movie(); result.movie.videoList = java.util.Collections.singletonList(video);
-            detailResult.postValue(result);
+            main.post(() -> { if (request == detailEpoch.get()) detailResult.setValue(result); });
             return;
         }
         spThreadPool.execute(() -> {
             try {
-                com.kukuqi.tvbox.engine.bean.Result core = com.kukuqi.tvbox.engine.api.SiteApi.detailContent(sourceKey,id);
+                com.kukuqi.tvbox.engine.bean.Result core = com.kukuqi.tvbox.osc.core.SourceAccess.call(sourceKey,
+                        () -> com.kukuqi.tvbox.engine.api.SiteApi.detailContent(sourceKey,id));
                 JsonObject document = JsonParser.parseString(core.toString()).getAsJsonObject();
                 JsonArray list = document.getAsJsonArray("list");
                 for (int i = 0; list != null && i < list.size() && i < core.getList().size(); i++) {
@@ -147,30 +157,33 @@ public class SourceViewModel extends ViewModel {
                     list.get(i).getAsJsonObject().addProperty("vod_play_from",TextUtils.join("$$$",flags));
                     list.get(i).getAsJsonObject().addProperty("vod_play_url",TextUtils.join("$$$",urls));
                 }
-                json(detailResult,document.toString(),sourceKey);
+                AbsXml result = json(null,document.toString(),sourceKey);
+                main.post(() -> { if (request == detailEpoch.get()) detailResult.setValue(result); });
             }
-            catch(Throwable e) { android.util.Log.e("TVboxCore", "detail", e); detailResult.postValue(null); }
+            catch(Throwable e) { android.util.Log.e("TVboxCore", "detail", e); main.post(() -> { if (request == detailEpoch.get()) detailResult.setValue(null); }); }
         });
     }
-    // searchContent
-    public void getSearch(String sourceKey, String wd) {
-        spThreadPool.execute(() -> {
-            try { json(searchResult, com.kukuqi.tvbox.engine.api.SiteApi.searchContent(com.kukuqi.tvbox.osc.core.CoreBridge.site(sourceKey),wd,false,"1").toString(),sourceKey); }
-            catch(Throwable e) { json(searchResult,"",sourceKey); }
-        });
+    public void startSearch(List<String> keys, String keyword, boolean quick) {
+        MutableLiveData<AbsXml> output = quick ? quickSearchResult : searchResult;
+        searches.start(keys, key -> com.kukuqi.tvbox.osc.core.SourceAccess.call(key,
+                () -> json(null, com.kukuqi.tvbox.engine.api.SiteApi.searchContent(
+                        com.kukuqi.tvbox.osc.core.CoreBridge.site(key), keyword, quick, "1").toString(), key)),
+                (key, value) -> output.setValue(value));
     }
-    // searchContent
-    public void getQuickSearch(String sourceKey, String wd) {
-        spThreadPool.execute(() -> {
-            try { json(quickSearchResult, com.kukuqi.tvbox.engine.api.SiteApi.searchContent(com.kukuqi.tvbox.osc.core.CoreBridge.site(sourceKey),wd,true,"1").toString(),sourceKey); }
-            catch(Throwable e) { json(quickSearchResult,"",sourceKey); }
-        });
-    }
+    public void cancelSearch() { searches.cancel(); }
     // playerContent
     public void getPlay(String sourceKey, String playFlag, String progressKey, String url, String subtitleKey) {
+        getPlay(sourceKey, playFlag, progressKey, url, subtitleKey, null);
+    }
+    public void cancelPlay() { playEpoch.incrementAndGet(); }
+    public void getPlay(String sourceKey, String playFlag, String progressKey, String url, String subtitleKey,
+                        com.kukuqi.tvbox.engine.bean.Result cached) {
+        int current = playEpoch.incrementAndGet();
         spThreadPool.execute(() -> {
+            if (current != playEpoch.get()) return;
             try {
-                com.kukuqi.tvbox.engine.bean.Result value = com.kukuqi.tvbox.osc.core.CoreBridge.player(sourceKey,playFlag,url);
+                com.kukuqi.tvbox.engine.bean.Result value = cached == null
+                        ? com.kukuqi.tvbox.osc.core.CoreBridge.player(sourceKey,playFlag,url) : cached;
                 JSONObject result = new JSONObject(value.toString());
                 // Keep the complete core response, including named quality URLs and DRM/subtitles.
                 result.put("coreResult", new JSONObject(value.toString()));
@@ -178,8 +191,8 @@ public class SourceViewModel extends ViewModel {
                 result.put("key", url); result.put("siteKey", sourceKey);
                 result.put("proKey",progressKey); result.put("subtKey",subtitleKey);
                 if (!result.has("flag")) result.put("flag",playFlag);
-                playResult.postValue(result);
-            } catch(Throwable e) { android.util.Log.e("TVboxCore","player",e); playResult.postValue(null); }
+                main.post(() -> { if (current == playEpoch.get()) playResult.setValue(result); });
+            } catch(Throwable e) { android.util.Log.e("TVboxCore","player",e); main.post(() -> { if (current == playEpoch.get()) playResult.setValue(null); }); }
         });
     }
 
@@ -304,11 +317,7 @@ public class SourceViewModel extends ViewModel {
             }
             AbsXml data = (AbsXml) xstream.fromXML(xml);
             absXml(data, sourceKey);
-            if (searchResult == result) {
-                EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_SEARCH_RESULT, data));
-            } else if (quickSearchResult == result) {
-                EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_QUICK_SEARCH_RESULT, data));
-            } else if (result != null) {
+            if (result != null) {
                 if (result == detailResult) {
                     checkThunder(data,0);
                 } else {
@@ -317,11 +326,7 @@ public class SourceViewModel extends ViewModel {
             }
             return data;
         } catch (Exception e) {
-            if (searchResult == result) {
-                EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_SEARCH_RESULT, null));
-            } else if (quickSearchResult == result) {
-                EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_QUICK_SEARCH_RESULT, null));
-            } else if (result != null) {
+            if (result != null) {
                 result.postValue(null);
             }
             return null;
@@ -351,11 +356,7 @@ public class SourceViewModel extends ViewModel {
             }.getType());
             AbsXml data = absJson.toAbsXml();
             absXml(data, sourceKey);
-            if (searchResult == result) {
-                EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_SEARCH_RESULT, data));
-            } else if (quickSearchResult == result) {
-                EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_QUICK_SEARCH_RESULT, data));
-            } else if (result != null) {
+            if (result != null) {
                 if (result == detailResult) {
                     checkThunder(data,0);
                 } else {
@@ -364,11 +365,7 @@ public class SourceViewModel extends ViewModel {
             }
             return data;
         } catch (Exception e) {
-            if (searchResult == result) {
-                EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_SEARCH_RESULT, null));
-            } else if (quickSearchResult == result) {
-                EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_QUICK_SEARCH_RESULT, null));
-            } else if (result != null) {
+            if (result != null) {
                 result.postValue(null);
             }
             return null;
@@ -377,6 +374,9 @@ public class SourceViewModel extends ViewModel {
 
     @Override
     protected void onCleared() {
+        detailEpoch.incrementAndGet();
+        searches.close();
+        cancelPlay();
         super.onCleared();
     }
 }

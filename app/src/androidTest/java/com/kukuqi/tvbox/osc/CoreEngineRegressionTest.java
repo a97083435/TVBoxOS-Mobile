@@ -187,6 +187,17 @@ public class CoreEngineRegressionTest extends InstrumentationTestCase {
             video.seekTo(1000);video.resume();
         });
         await(()->player.getTrackInfo().getSubtitle().size()>=2);
+        if (backend == 1) onMain(() -> {
+            var state = player.manager().getSecondarySubtitleState();
+            assertFalse("No secondary subtitle candidates", state.secondaryCandidates().isEmpty());
+            var candidate = state.secondaryCandidates().get(0);
+            player.manager().setSecondarySubtitleSelection(candidate);
+            assertEquals(candidate, player.manager().getSecondarySubtitleState().explicitSelection());
+            player.manager().applySubtitleStyle();
+            assertEquals("Style change lost explicit secondary track", candidate, player.manager().getSecondarySubtitleState().explicitSelection());
+            player.manager().setSecondarySubtitleSelection(null);
+            assertNull(player.manager().getSecondarySubtitleState().explicitSelection());
+        });
         onMain(()->{
             subtitles.setSubtitleDelay(500);assertEquals(500L,player.manager().getTextOffsetMs());
             subtitles.setVisibility(android.view.View.GONE);

@@ -755,6 +755,7 @@ public class VodController extends BaseController {
         void playPre();
 
         void prepared();
+        default void progress(long duration, long position) {}
 
         void changeParse(ParseBean pb);
 
@@ -799,6 +800,7 @@ public class VodController extends BaseController {
             return;
         }
         super.setProgress(duration, position);
+        if (listener != null) listener.progress(duration, position);
         if (skipEnd && position != 0 && duration != 0) {
             int et = 0;
             try {

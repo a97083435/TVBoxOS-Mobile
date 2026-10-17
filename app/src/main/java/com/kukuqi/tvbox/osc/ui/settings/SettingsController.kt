@@ -117,6 +117,9 @@ class SettingsController(
             val newConfig = !Hawk.get(HawkConfig.PRIVATE_BROWSING, false)
             mBinding.switchPrivateBrowsing.setChecked(newConfig)
             Hawk.put(HawkConfig.PRIVATE_BROWSING, newConfig)
+            org.greenrobot.eventbus.EventBus.getDefault().post(
+                com.kukuqi.tvbox.osc.event.RefreshEvent(com.kukuqi.tvbox.osc.event.RefreshEvent.TYPE_HISTORY_REFRESH)
+            )
         }
 
         mBinding.llLiveApi.setOnClickListener {

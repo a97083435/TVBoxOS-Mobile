@@ -26,6 +26,8 @@ import com.kukuqi.tvbox.osc.R;
 import com.kukuqi.tvbox.osc.base.App;
 import com.kukuqi.tvbox.osc.constant.IntentKey;
 import com.kukuqi.tvbox.osc.event.RefreshEvent;
+import com.kukuqi.tvbox.osc.event.SourceChangedEvent;
+import com.kukuqi.tvbox.osc.data.AppDataManager;
 import com.kukuqi.tvbox.osc.player.MyVideoView;
 import com.kukuqi.tvbox.osc.ui.activity.DetailActivity;
 
@@ -33,8 +35,8 @@ import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
 
-import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 /** Exposes TVboxOSC playback to Android media controls while preserving the existing UI lifecycle. */
 public class PlayService extends MediaBrowserServiceCompat {
@@ -49,6 +51,20 @@ public class PlayService extends MediaBrowserServiceCompat {
     private static final String BROWSER_ROOT = "tvboxosc_root";
 
     private MediaSessionCompat mediaSession;
+    private MediaCatalog catalog;
+    private final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable refreshLibrary = () -> {
+        if (instance != this) return;
+        notifyChildrenChanged(MediaCatalog.HISTORY);
+        notifyChildrenChanged(MediaCatalog.FAVORITES);
+    };
+    private final androidx.room.InvalidationTracker.Observer libraryObserver =
+            new androidx.room.InvalidationTracker.Observer("vodRecord", "vodCollect") {
+                @Override public void onInvalidated(@NonNull Set<String> tables) {
+                    main.removeCallbacks(refreshLibrary);
+                    main.postDelayed(refreshLibrary, 250);
+                }
+            };
 
     public static void start(MyVideoView controller, String currentVideoInfo) {
         start(controller, currentVideoInfo, new Intent(App.getInstance(), DetailActivity.class));
@@ -63,6 +79,13 @@ public class PlayService extends MediaBrowserServiceCompat {
     }
 
     public static void stop() {
+        videoView = null;
+        resumeIntent = null;
+        videoInfo = "TVboxOSC&&请选择播放内容";
+        if (instance != null) {
+            instance.stopForeground(true);
+            instance.updateSession();
+        }
         App.getInstance().stopService(new Intent(App.getInstance(), PlayService.class));
     }
 
@@ -74,6 +97,8 @@ public class PlayService extends MediaBrowserServiceCompat {
     public void onCreate() {
         super.onCreate();
         instance = this;
+        catalog = new MediaCatalog(this);
+        AppDataManager.get().getInvalidationTracker().addObserver(libraryObserver);
         EventBus.getDefault().register(this);
         createNotificationChannel();
         createMediaSession();
@@ -97,6 +122,10 @@ public class PlayService extends MediaBrowserServiceCompat {
             @Override public void onSkipToPrevious() { sendControl(IntentKey.BROADCAST_ACTION_PREV); }
             @Override public void onSkipToNext() { sendControl(IntentKey.BROADCAST_ACTION_NEXT); }
             @Override public void onSeekTo(long pos) { if (videoView != null) videoView.seekTo(Math.max(0, pos)); updateSession(); }
+            @Override public void onPlayFromMediaId(String mediaId, Bundle extras) {
+                Intent target = catalog.intent(mediaId);
+                if (target != null) startActivity(target);
+            }
         });
         mediaSession.setActive(true);
         setSessionToken(mediaSession.getSessionToken());
@@ -121,10 +150,24 @@ public class PlayService extends MediaBrowserServiceCompat {
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void refresh(RefreshEvent event) {
+        if (event.type == RefreshEvent.TYPE_HISTORY_REFRESH || event.type == RefreshEvent.TYPE_REFRESH) {
+            main.removeCallbacks(refreshLibrary);
+            main.post(refreshLibrary);
+        }
         if (event.type != RefreshEvent.TYPE_REFRESH_NOTIFY) return;
         if (event.obj != null) videoInfo = event.obj.toString();
         updateSession();
         if (videoView != null) NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, buildNotification());
+    }
+
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void sourceChanged(SourceChangedEvent event) {
+        main.post(refreshLibrary);
+        // Recording freshly fetched source metadata also emits this event.
+        // Invalidating on that notification would make a live subscription reload itself.
+        if (!event.selectionChanged) return;
+        catalog.invalidateLive();
+        notifyChildrenChanged(MediaCatalog.LIVE);
     }
 
     private void updateSession() {
@@ -132,11 +175,11 @@ public class PlayService extends MediaBrowserServiceCompat {
         String[] parts = splitVideoInfo();
         long position = videoView == null ? 0 : Math.max(0, videoView.getCurrentPosition());
         long duration = videoView == null ? 0 : Math.max(0, videoView.getDuration());
-        int state = videoView != null && videoView.isPlaying() ? PlaybackStateCompat.STATE_PLAYING : PlaybackStateCompat.STATE_PAUSED;
+        int state = videoView == null ? PlaybackStateCompat.STATE_NONE : videoView.isPlaying() ? PlaybackStateCompat.STATE_PLAYING : PlaybackStateCompat.STATE_PAUSED;
         long actions = PlaybackStateCompat.ACTION_PLAY | PlaybackStateCompat.ACTION_PAUSE |
                 PlaybackStateCompat.ACTION_PLAY_PAUSE | PlaybackStateCompat.ACTION_SEEK_TO |
                 PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS | PlaybackStateCompat.ACTION_SKIP_TO_NEXT |
-                PlaybackStateCompat.ACTION_STOP;
+                PlaybackStateCompat.ACTION_STOP | PlaybackStateCompat.ACTION_PLAY_FROM_MEDIA_ID;
         mediaSession.setPlaybackState(new PlaybackStateCompat.Builder().setActions(actions)
                 .setState(state, position, state == PlaybackStateCompat.STATE_PLAYING ? 1f : 0f).build());
         MediaMetadataCompat.Builder metadata = new MediaMetadataCompat.Builder()
@@ -194,16 +237,22 @@ public class PlayService extends MediaBrowserServiceCompat {
     @Nullable
     @Override
     public BrowserRoot onGetRoot(@NonNull String clientPackageName, int clientUid, @Nullable Bundle rootHints) {
+        if (clientUid != android.os.Process.myUid() && !androidx.media.MediaSessionManager.getSessionManager(this)
+                .isTrustedForMediaControl(new androidx.media.MediaSessionManager.RemoteUserInfo(clientPackageName, -1, clientUid))) return null;
         return new BrowserRoot(BROWSER_ROOT, null);
     }
 
     @Override
     public void onLoadChildren(@NonNull String parentId, @NonNull Result<List<MediaBrowserCompat.MediaItem>> result) {
-        result.sendResult(Collections.emptyList());
+        result.detach();
+        catalog.children(parentId, result::sendResult);
     }
 
     @Override
     public void onDestroy() {
+        AppDataManager.get().getInvalidationTracker().removeObserver(libraryObserver);
+        main.removeCallbacksAndMessages(null);
+        if (catalog != null) catalog.close();
         if (EventBus.getDefault().isRegistered(this)) EventBus.getDefault().unregister(this);
         stopForeground(true);
         if (mediaSession != null) {

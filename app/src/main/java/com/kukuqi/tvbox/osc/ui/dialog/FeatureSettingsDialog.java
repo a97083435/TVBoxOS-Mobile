@@ -346,7 +346,20 @@ public final class FeatureSettingsDialog {
     private static void secondarySubtitle(Activity activity, PlayerManager manager, BooleanSupplier active) {
         FeatureSettingsDialog panel = new FeatureSettingsDialog(activity, "双字幕");
         panel.choice("副字幕", new String[]{"关闭", "自动选择"}, new int[]{-2,-1}, SubtitleSetting::getSecondaryMode,
-                value -> { if (active.getAsBoolean()) { SubtitleSetting.putSecondaryMode(value); manager.applySubtitleStyle(); } });
+                value -> { if (active.getAsBoolean()) { SubtitleSetting.putSecondaryMode(value); manager.setSecondarySubtitleSelection(null); manager.applySubtitleStyle(); } });
+        List<androidx.media3.common.TrackSelectionOverride> candidates = manager.getSecondarySubtitleState().secondaryCandidates();
+        if (!candidates.isEmpty()) panel.row("选择副字幕轨道 ›", () -> {
+            String[] names = new String[candidates.size()]; int selected = -1;
+            for (int i = 0; i < names.length; i++) {
+                var candidate = candidates.get(i);
+                var format = candidate.mediaTrackGroup.getFormat(candidate.trackIndices.get(0));
+                names[i] = (format.label == null ? "字幕 " + (i + 1) : format.label) + (format.language == null ? "" : " · " + format.language);
+                if (candidate.equals(manager.getSecondarySubtitleState().explicitSelection())) selected = i;
+            }
+            select(activity, "选择副字幕轨道", names, selected, index -> {
+                if (active.getAsBoolean()) { SubtitleSetting.putSecondaryMode(-1); manager.setSecondarySubtitleSelection(candidates.get(index)); }
+            });
+        });
         panel.range("副字幕位置", 0, 100, 1, SubtitleSetting.getSecondaryPosition(), "%", active,
                 value -> { SubtitleSetting.putSecondaryPosition((float)value); manager.applySubtitleStyle(); });
         panel.dialog.show();
@@ -444,6 +457,7 @@ public final class FeatureSettingsDialog {
     public static void advancedPlayback(Activity activity) {
         FeatureSettingsDialog panel = new FeatureSettingsDialog(activity, "高级播放设置");
         panel.row("下次播放生效", null);
+        panel.toggle("下一集预加载（Media3）", com.kukuqi.tvbox.osc.util.HawkConfig.NEXT_EPISODE_PRELOAD, true);
         panel.toggle("音频直通", com.kukuqi.tvbox.engine.setting.DecodeSetting::isAudioPassThrough,
                 com.kukuqi.tvbox.engine.setting.DecodeSetting::putAudioPassThrough);
         panel.toggle("静音片段跳过（Exo）", com.kukuqi.tvbox.engine.setting.SpeedSetting::isSkipSilence,

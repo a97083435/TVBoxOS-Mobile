@@ -115,6 +115,8 @@ public class PlayFragment extends BaseLazyFragment {
     private VodController mController;
     private SourceViewModel sourceViewModel;
     private Handler mHandler;
+    private final com.kukuqi.tvbox.osc.core.EpisodePreloader<com.kukuqi.tvbox.engine.bean.Result> nextEpisode =
+            new com.kukuqi.tvbox.osc.core.EpisodePreloader<>(command -> new Handler(android.os.Looper.getMainLooper()).post(command));
 
     private final long videoDuration = -1;
     /**
@@ -234,6 +236,7 @@ public class PlayFragment extends BaseLazyFragment {
                 if (rmProgress && preProgressKey != null)
                     CacheManager.delete(MD5.string2MD5(preProgressKey), 0);
             }
+            @Override public void progress(long duration, long position) { preloadNext(duration, position); }
 
             @Override
             public void playPre() {
@@ -794,6 +797,7 @@ public class PlayFragment extends BaseLazyFragment {
                         if (index == qualities.getUrl().getPosition()) return;
                         qualityResumePosition = mVideoView.getCurrentPosition();
                         qualityResumePlaying = mVideoView.isPlaying();
+                        nextEpisode.clear();
                         qualities.getUrl().set(index);
                         autoRetryCount = 0;
                         playCoreSelection();
@@ -933,6 +937,8 @@ public class PlayFragment extends BaseLazyFragment {
 
     @Override
     public void onDestroyView() {
+        nextEpisode.close();
+        if (sourceViewModel != null) sourceViewModel.cancelPlay();
         super.onDestroyView();
         //手动注销
         sourceViewModel.playResult.removeObserver(mObserverPlayResult);
@@ -1035,7 +1041,51 @@ public class PlayFragment extends BaseLazyFragment {
             CacheManager.delete(MD5.string2MD5(progressKey), 0);
             CacheManager.delete(MD5.string2MD5(subtitleCacheKey), 0);
         }
-        sourceViewModel.getPlay(sourceKey, mVodInfo.playFlag, progressKey, vs.url, subtitleCacheKey);
+        com.kukuqi.tvbox.engine.bean.Result cached = nextEpisode.take(new com.kukuqi.tvbox.osc.core.EpisodePreloader.Key(
+                sourceKey, mVodInfo.id, mVodInfo.playFlag, vs.url));
+        sourceViewModel.getPlay(sourceKey, mVodInfo.playFlag, progressKey, vs.url, subtitleCacheKey, reset ? null : cached);
+    }
+
+    private void preloadNext(long duration, long position) {
+        if (mVideoView == null || mVodInfo == null || !mVideoView.isPlaying()) return;
+        if (!(mVideoView.getMediaPlayer() instanceof com.kukuqi.tvbox.osc.player.CorePlayer core)) return;
+        if (!Hawk.get(HawkConfig.NEXT_EPISODE_PRELOAD, true)) {
+            nextEpisode.clear();
+            if (core.manager() != null) core.manager().clearPreload();
+            return;
+        }
+        long skipEnd = mVodPlayerCfg == null ? 0 : mVodPlayerCfg.optLong("et", 0) * 1000;
+        long untilNext = duration - position - skipEnd;
+        if (duration < 30000 || position < 5000 || untilNext > 30000 || untilNext < 0) {
+            nextEpisode.clear();
+            if (core.manager() != null) core.manager().clearPreload();
+            return;
+        }
+        if (core.manager() == null || !core.manager().canPreloadNext() || corePlayResult == null
+                || corePlayResult.needParse() || corePlayResult.isUseParse() || corePlayResult.getDrm() != null) return;
+        List<VodInfo.VodSeries> episodes = mVodInfo.seriesMap.get(mVodInfo.playFlag);
+        int index = mVodInfo.playIndex + 1;
+        if (episodes == null || index >= episodes.size()) return;
+        VodInfo.VodSeries episode = episodes.get(index);
+        if (TextUtils.isEmpty(episode.url) || episode.url.startsWith("magnet:") || episode.url.startsWith("thunder:")
+                || episode.url.startsWith("ed2k:") || episode.url.startsWith("file:")) return;
+        String key = sourceKey, flag = mVodInfo.playFlag;
+        int quality = corePlayResult.getUrl().getPosition();
+        long start = mVodPlayerCfg == null ? 0 : Math.max(0, mVodPlayerCfg.optLong("st", 0) * 1000);
+        nextEpisode.request(new com.kukuqi.tvbox.osc.core.EpisodePreloader.Key(key, mVodInfo.id, flag, episode.url), () -> {
+            com.kukuqi.tvbox.engine.bean.Result result = com.kukuqi.tvbox.osc.core.CoreBridge.preload(key, flag, episode.url);
+            if (quality >= 0 && quality < result.getUrl().getValues().size()) result.getUrl().set(quality);
+            if (result.needParse() || result.isUseParse() || result.hasMsg() || result.getDrm() != null || !result.getPlayUrl().isEmpty()
+                    || com.kukuqi.tvbox.engine.player.extractor.Source.get().requiresExtraction(result)
+                    || !(result.getUrl().v().startsWith("https://") || result.getUrl().v().startsWith("http://"))) return null;
+            return result;
+        }, result -> {
+            if (mVideoView == null || mVideoView.getMediaPlayer() != core || core.manager() == null || core.manager().isReleased()) return;
+            Bundle extras = new Bundle();
+            extras.putBoolean(com.kukuqi.tvbox.engine.player.exo.ExoMediaSourceFactory.PRELOAD_CACHE_KEY, true);
+            core.manager().preload(com.kukuqi.tvbox.engine.player.media.PlaySpec.from(result, key,
+                    new androidx.media3.common.MediaMetadata.Builder().setExtras(extras).build()), start);
+        });
     }
 
     private com.kukuqi.tvbox.engine.bean.Result corePlayResult;

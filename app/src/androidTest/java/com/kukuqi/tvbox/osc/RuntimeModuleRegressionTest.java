@@ -265,6 +265,9 @@ public class RuntimeModuleRegressionTest extends InstrumentationTestCase {
             assertSame(com.github.catvod.crawler.Spider.class, loader.loadClass("com.github.catvod.crawler.Spider"));
             assertNotSame(host.getClassLoader(), loader.loadClass(module.entry).getClassLoader());
         }
+        // BD-J's Files.copy is absent from the shrunk host, but present in its own APK.
+        ClassLoader bdj = RuntimeModules.loader(host, RuntimeModule.BDJ);
+        assertSame(bdj, bdj.loadClass("j$.nio.file.Files").getClassLoader());
         // A local torrent exercises native Thunder parsing without starting a network download.
         File torrent = new File(host.getCacheDir(), "runtime-fixture.torrent");
         // Thunder intentionally filters files <= 30 MiB. Only metadata is generated, no video payload.

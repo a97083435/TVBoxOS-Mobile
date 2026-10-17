@@ -1097,11 +1097,19 @@ public class LiveActivity extends BaseActivity {
 
     private void initLiveState() {
         String lastChannelName = Hawk.get(HawkConfig.LIVE_CHANNEL, "");
+        Intent selected = getIntent();
+        String requestedGroup = selected.getStringExtra(com.kukuqi.tvbox.osc.service.MediaCatalog.EXTRA_LIVE_GROUP);
+        boolean requested = Hawk.get(HawkConfig.LIVE_URL, "").equals(selected.getStringExtra(com.kukuqi.tvbox.osc.service.MediaCatalog.EXTRA_LIVE_SOURCE));
+        if (requested) lastChannelName = selected.getStringExtra(com.kukuqi.tvbox.osc.service.MediaCatalog.EXTRA_LIVE_CHANNEL);
+        selected.removeExtra(com.kukuqi.tvbox.osc.service.MediaCatalog.EXTRA_LIVE_SOURCE);
 
         int lastChannelGroupIndex = -1;
         int lastLiveChannelIndex = -1;
         for (LiveChannelGroup liveChannelGroup : liveChannelGroupList) {
+            if (requested && (!liveChannelGroup.getGroupName().equals(requestedGroup) || !liveChannelGroup.getGroupPassword().isEmpty())) continue;
+            if (requested && liveChannelGroup.getGroupIndex() != selected.getIntExtra(com.kukuqi.tvbox.osc.service.MediaCatalog.EXTRA_LIVE_GROUP_INDEX, -1)) continue;
             for (LiveChannelItem liveChannelItem : liveChannelGroup.getLiveChannels()) {
+                if (requested && liveChannelItem.getChannelIndex() != selected.getIntExtra(com.kukuqi.tvbox.osc.service.MediaCatalog.EXTRA_LIVE_CHANNEL_INDEX, -1)) continue;
                 if (liveChannelItem.getChannelName().equals(lastChannelName)) {
                     lastChannelGroupIndex = liveChannelGroup.getGroupIndex();
                     lastLiveChannelIndex = liveChannelItem.getChannelIndex();
@@ -1111,6 +1119,7 @@ public class LiveActivity extends BaseActivity {
             if (lastChannelGroupIndex != -1) break;
         }
         if (lastChannelGroupIndex == -1) {
+            if (requested) { showNoLiveChannels("频道已变化，请重新打开直播目录"); return; }
             lastChannelGroupIndex = getFirstNoPasswordChannelGroup();
             if (lastChannelGroupIndex == -1)
                 lastChannelGroupIndex = 0;
@@ -1123,6 +1132,15 @@ public class LiveActivity extends BaseActivity {
 
         liveChannelGroupAdapter.setNewData(liveChannelGroupList);
         selectChannelGroup(lastChannelGroupIndex, false, lastLiveChannelIndex);
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (intent.hasExtra(com.kukuqi.tvbox.osc.service.MediaCatalog.EXTRA_LIVE_SOURCE)) {
+            if (mVideoView != null) mVideoView.release();
+            initLiveChannelList();
+        }
     }
 
     private boolean isListOrSettingLayoutVisible() {

@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicReference;
 /** Startup remains visible with a wallpaper selected, then launches the renamed application. */
 public class StartupRegressionTest extends InstrumentationTestCase {
     public void testRenamedLauncherShowsAnimationAndOpensHome() throws Exception {
-        assertEquals("com.kukuqi.tvbox.osc", getInstrumentation().getTargetContext().getPackageName());
+        assertTrue(getInstrumentation().getTargetContext().getPackageName().startsWith("com.kukuqi.tvbox.osc"));
         assertEquals("TVboxOSC", getInstrumentation().getTargetContext().getString(R.string.app_name));
         ActivityMonitor monitor = getInstrumentation().addMonitor(MainActivity.class.getName(), null, false);
         SplashActivity splash = (SplashActivity) getInstrumentation().startActivitySync(new Intent(getInstrumentation().getTargetContext(), SplashActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));

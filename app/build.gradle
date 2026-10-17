@@ -4,6 +4,7 @@ apply plugin: 'org.jetbrains.kotlin.android'
 configurations.configureEach {
     exclude group: 'io.antmedia', module: 'rtmp-client'
     exclude group: 'xpp3', module: 'xpp3_min'
+    exclude group: 'xpp3', module: 'xpp3'
 }
 
 def tvBoxSigningStore = rootProject.file('TVBoxOSC.jks')
@@ -35,8 +36,8 @@ android {
         minSdkVersion 24
         targetSdkVersion 34
         buildConfigField 'String', 'RUNTIME_CATALOG_URL', groovy.json.JsonOutput.toJson(providers.gradleProperty('runtimeCatalogUrl').getOrElse('https://github.com/kukuqi666/TVboxOSC/releases/latest/download/catalog.json'))
-        versionCode 308
-        versionName '3.0.8'
+        versionCode 309
+        versionName '3.0.9'
         multiDexEnabled true
         testInstrumentationRunner 'com.kukuqi.tvbox.osc.RegressionTestRunner'
         //设置room的Schema的位置
@@ -81,6 +82,12 @@ android {
 
     buildTypes {
         debug {
+            if (providers.gradleProperty('shrinkValidation').getOrElse('false').toBoolean()) {
+                debuggable false
+                minifyEnabled true
+                shrinkResources true
+                proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-core.pro'
+            }
             if (providers.gradleProperty('coreValidation').getOrElse('false').toBoolean()) {
                 applicationIdSuffix '.corevalidation'
                 manifestPlaceholders.tvboxAppLabel = 'TVboxOSC 验证版'
@@ -94,7 +101,9 @@ android {
             if (tvBoxSigningStore.exists()) {
                 signingConfig signingConfigs.config
             }
-            minifyEnabled false
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-core.pro'
         }
     }
 
