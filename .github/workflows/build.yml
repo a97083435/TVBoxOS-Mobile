@@ -150,7 +150,34 @@ jobs:
           TVBOX_STORE_PASSWORD: ${{ secrets.TVBOX_STORE_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew :app:assembleRelease :runtime-python:assembleRelease :runtime-quickjs:assembleRelease :runtime-thunder:assembleRelease :runtime-nodejs:assembleRelease :runtime-bdj:assembleRelease --stacktrace --no-daemon
+          mkdir -p build
+          set -o pipefail
+          # End the R8 JVM before packaging the large optional runtime assets.
+          ./gradlew :app:assembleRelease -Dorg.gradle.jvmargs=-Xmx4096m --max-workers=2 --stacktrace --no-daemon 2>&1 | tee build/gradle-release.log
+          ./gradlew :runtime-python:assembleRelease :runtime-quickjs:assembleRelease :runtime-thunder:assembleRelease :runtime-nodejs:assembleRelease :runtime-bdj:assembleRelease -Dorg.gradle.jvmargs=-Xmx3072m --max-workers=2 --stacktrace --no-daemon 2>&1 | tee -a build/gradle-release.log
+      - name: Report release build failure
+        if: failure()
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          log = Path('build/gradle-release.log')
+          if log.exists():
+              text = log.read_text(errors='replace')
+              start = text.find('FAILURE: Build failed')
+              excerpt = text[start:start+6000] if start >= 0 else text[-6000:]
+              excerpt = excerpt.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print('::error title=Release build failure::' + excerpt)
+          PY
+      - name: Upload release build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TVboxOSC-release-build-reports
+          path: |
+            build/gradle-release.log
+            app/build/outputs/mapping/release/missing_rules.txt
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Verify APK and generate update manifest
         env:
           VERSION: ${{ needs.plan-release.outputs.version }}
