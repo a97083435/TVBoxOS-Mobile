@@ -25,16 +25,18 @@ tasks.configureEach { task ->
 android {
     namespace 'com.kukuqi.tvbox.osc'
     compileSdkVersion 37
+    ["python", "quickjs", "thunder", "nodejs", "bdj"].each { sourceSets.main.res.srcDir(rootProject.file("runtime/icons/${it}")) }
     useLibrary 'android.test.runner'
     useLibrary 'android.test.base'
 
     defaultConfig {
         applicationId 'com.kukuqi.tvbox.osc'
+        manifestPlaceholders.tvboxAppLabel = '@string/app_name'
         minSdkVersion 24
         targetSdkVersion 34
         buildConfigField 'String', 'RUNTIME_CATALOG_URL', groovy.json.JsonOutput.toJson(providers.gradleProperty('runtimeCatalogUrl').getOrElse('https://github.com/kukuqi666/TVboxOSC/releases/latest/download/catalog.json'))
-        versionCode 307
-        versionName '3.0.7'
+        versionCode 308
+        versionName '3.0.8'
         multiDexEnabled true
         testInstrumentationRunner 'com.kukuqi.tvbox.osc.RegressionTestRunner'
         //设置room的Schema的位置
@@ -79,6 +81,10 @@ android {
 
     buildTypes {
         debug {
+            if (providers.gradleProperty('coreValidation').getOrElse('false').toBoolean()) {
+                applicationIdSuffix '.corevalidation'
+                manifestPlaceholders.tvboxAppLabel = 'TVboxOSC 验证版'
+            }
             if (tvBoxSigningStore.exists()) {
                 signingConfig signingConfigs.config
             }

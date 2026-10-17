@@ -466,14 +466,28 @@ public final class FeatureSettingsDialog {
 
     /** The catalog provider lets instrumentation use a fixture without changing user preferences. */
     public static void modules(Activity activity, java.util.function.Supplier<String> catalogProvider) {
-        FeatureSettingsDialog panel = new FeatureSettingsDialog(activity, "模块管理");
+        FeatureSettingsDialog panel = new FeatureSettingsDialog(activity,
+                activity.getPackageName().endsWith(".corevalidation") ? "模块管理 · 验证版" : "模块管理");
         for (com.kukuqi.tvbox.engine.runtime.RuntimeModule module : com.kukuqi.tvbox.engine.runtime.RuntimeModule.values()) {
             TextView item = panel.row("", () -> {});
-            Runnable refresh = () -> item.setText(module.title + " · " + com.kukuqi.tvbox.engine.runtime.RuntimeModules.status(activity, module));
+            int icon = switch (module) {
+                case PYTHON -> R.drawable.runtime_icon_python;
+                case QUICKJS -> R.drawable.runtime_icon_quickjs;
+                case THUNDER -> R.drawable.runtime_icon_thunder;
+                case NODEJS -> R.drawable.runtime_icon_nodejs;
+                case BDJ -> R.drawable.runtime_icon_bdj;
+            };
+            android.graphics.drawable.Drawable drawable = activity.getDrawable(icon);
+            drawable.setBounds(0, 0, panel.dp(36), panel.dp(36));
+            item.setCompoundDrawablesRelative(drawable, null, null, null);
+            item.setCompoundDrawablePadding(panel.dp(12));
+            boolean[] downloading = {false};
+            Runnable refresh = () -> {
+                if (!downloading[0]) item.setText(module.title + " · " + com.kukuqi.tvbox.engine.runtime.RuntimeModules.status(activity, module));
+            };
             refresh.run();
             panel.root.getViewTreeObserver().addOnWindowFocusChangeListener(focused -> { if (focused) refresh.run(); });
-            boolean[] downloading = {false};
-            item.setOnClickListener(v -> {
+            Runnable download = () -> {
                 if (downloading[0]) return;
                 String catalog = catalogProvider.get();
                 if (catalog.trim().isEmpty()) {
@@ -490,6 +504,11 @@ public final class FeatureSettingsDialog {
                         activity.runOnUiThread(() -> {
                             downloading[0] = false;
                             if (activity.isFinishing() || activity.isDestroyed() || !panel.dialog.isShowing()) return;
+                            if (apk == null) {
+                                refresh.run();
+                                Toast.makeText(activity, module.title + " 已是最新版本", Toast.LENGTH_SHORT).show();
+                                return;
+                            }
                             try {
                                 android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(activity, activity.getPackageName() + ".fileprovider", apk);
                                 activity.startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW)
@@ -501,6 +520,24 @@ public final class FeatureSettingsDialog {
                         activity.runOnUiThread(() -> { downloading[0] = false; progress.accept(com.kukuqi.tvbox.osc.util.RuntimeDownload.errorMessage(failure) + "（点击重试）"); });
                     }
                 });
+            };
+            item.setOnClickListener(v -> {
+                if (downloading[0]) return;
+                try {
+                    com.kukuqi.tvbox.engine.runtime.RuntimeModules.installed(activity, module);
+                    refresh.run();
+                    actions(activity, module.title + " · " + com.kukuqi.tvbox.engine.runtime.RuntimeModules.status(activity, module),
+                            new String[]{"检查更新", "系统应用信息"}, index -> {
+                                if (index == 0) download.run();
+                                else {
+                                    try {
+                                        activity.startActivity(new android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                                android.net.Uri.parse("package:" + module.packageName(activity))));
+                                    } catch (Exception failure) { message(activity, "无法打开应用信息", "请在系统设置中查看模块。"); }
+                                }
+                            });
+                } catch (android.content.pm.PackageManager.NameNotFoundException missing) { download.run(); }
+                catch (Exception invalid) { message(activity, module.title + " 模块不可用", invalid.getMessage()); }
             });
         }
         TextView builtIn = panel.row("内置：Exo / Media3、MPV、JAR Spider", null);

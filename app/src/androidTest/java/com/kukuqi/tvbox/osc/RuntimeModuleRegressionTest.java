@@ -22,15 +22,25 @@ public class RuntimeModuleRegressionTest extends InstrumentationTestCase {
     private String base;
     private volatile boolean corruptHash, truncate;
     private volatile String requestedRange;
+    private final java.util.concurrent.atomic.AtomicInteger apkRequests = new java.util.concurrent.atomic.AtomicInteger();
+    private final java.util.concurrent.atomic.AtomicInteger catalogRequests = new java.util.concurrent.atomic.AtomicInteger();
+    private int catalogVersion = 2;
+    private boolean productionCatalog;
     @Override protected void setUp() throws Exception {
         super.setUp(); host = getInstrumentation().getTargetContext();
+        File[] staged = new File(host.getCacheDir(), "runtime-downloads").listFiles();
+        if (staged != null) for (File file : staged) assertTrue(file.delete());
         server = new NanoHTTPD("127.0.0.1", 0) {
             @Override public Response serve(IHTTPSession session) {
                 try {
-                    if (session.getUri().equals("/catalog.json")) return newFixedLengthResponse(Response.Status.OK, "application/json", catalog().toString());
+                    if (session.getUri().equals("/catalog.json")) {
+                        catalogRequests.incrementAndGet();
+                        return newFixedLengthResponse(Response.Status.OK, "application/json", catalog().toString());
+                    }
                     if (session.getUri().equals("/source.cjs")) return newFixedLengthResponse(Response.Status.OK, "text/javascript", "module.exports={home:async()=>({list:[{vod_name:'remote-node-ready'}]})};");
                     RuntimeModule requested = java.util.Arrays.stream(RuntimeModule.values()).filter(module -> session.getUri().equals("/" + module.id + ".apk")).findFirst().orElseThrow();
                     File file = fixture(requested);
+                    apkRequests.incrementAndGet();
                     if (truncate) return newFixedLengthResponse(Response.Status.OK, "application/octet-stream", new FileInputStream(file), 131072);
                     requestedRange = session.getHeaders().get("range");
                     if (requestedRange != null) {
@@ -61,8 +71,8 @@ public class RuntimeModuleRegressionTest extends InstrumentationTestCase {
             StringBuilder sha = new StringBuilder(); for (byte b : digest.digest()) sha.append(String.format(java.util.Locale.ROOT, "%02x", b & 255));
             JSONObject artifact = new JSONObject().put("abi", "arm64-v8a").put("minSdk", 24).put("size", file.length())
                     .put("sha256", corruptHash ? "0".repeat(64) : sha.toString()).put("url", base + "/" + module.id + ".apk");
-            modules.put(new JSONObject().put("id", module.id).put("packageName", module.packageName(host)).put("compatibilityId", module.contract())
-                    .put("versionCode", 1).put("versionName", "1.0.0").put("artifacts", new JSONArray().put(artifact)));
+            modules.put(new JSONObject().put("id", module.id).put("packageName", productionCatalog ? "com.kukuqi.tvbox.runtime." + module.id : module.packageName(host)).put("compatibilityId", module.contract())
+                    .put("versionCode", catalogVersion).put("versionName", "1.0.1").put("artifacts", new JSONArray().put(artifact)));
         }
         return new JSONObject().put("schema", 1).put("modules", modules);
     }
@@ -92,6 +102,71 @@ public class RuntimeModuleRegressionTest extends InstrumentationTestCase {
         assertEquals(0, partials(RuntimeModule.QUICKJS).length);
         corruptHash = false;
         assertTrue(RuntimeDownload.download(host, RuntimeModule.QUICKJS, base + "/catalog.json", value -> {}).isFile());
+    }
+    public void testVerifiedCachedApkIsReusedButTamperingRedownloads() throws Exception {
+        File apk = RuntimeDownload.download(host, RuntimeModule.QUICKJS, base + "/catalog.json", value -> {});
+        assertEquals(1, apkRequests.get());
+        assertEquals(apk, RuntimeDownload.download(host, RuntimeModule.QUICKJS, base + "/catalog.json", value -> {}));
+        assertEquals("Retry must reuse fully verified APK", 1, apkRequests.get());
+        try (java.io.RandomAccessFile file = new java.io.RandomAccessFile(apk, "rw")) { file.seek(100); int value = file.read(); file.seek(100); file.write(value ^ 255); }
+        assertNotNull(RuntimeDownload.download(host, RuntimeModule.QUICKJS, base + "/catalog.json", value -> {}));
+        assertEquals("Tampered cache must be replaced", 2, apkRequests.get());
+    }
+    public void testInstalledCurrentOrNewerModulesDoNotFetchApks() throws Exception {
+        assertNotNull(RuntimeModules.installed(host, RuntimeModule.QUICKJS));
+        assertNull(RuntimeDownload.download(host, RuntimeModule.QUICKJS, base + "/catalog.json", value -> {}));
+        catalogVersion = 1;
+        assertNull(RuntimeDownload.download(host, RuntimeModule.QUICKJS, base + "/catalog.json", value -> {}));
+        assertEquals(0, apkRequests.get());
+    }
+    public void testProductionCatalogExplainsValidationPackageMismatch() throws Exception {
+        productionCatalog = true;
+        try { RuntimeDownload.download(host, RuntimeModule.PYTHON, base + "/catalog.json", value -> {}); fail("Production catalog accepted by validation app"); }
+        catch (IllegalArgumentException expected) { assertTrue(expected.getMessage().contains("独立验证版")); }
+        assertEquals(0, apkRequests.get());
+    }
+    public void testNewerCatalogStillDownloadsAndRejectsWrongVersion() throws Exception {
+        assertNotNull(RuntimeModules.installed(host, RuntimeModule.QUICKJS));
+        catalogVersion = 3;
+        try { RuntimeDownload.download(host, RuntimeModule.QUICKJS, base + "/catalog.json", value -> {}); fail("Wrong version accepted"); }
+        catch (SecurityException expected) { assertTrue(expected.getMessage().contains("版本")); }
+        assertEquals(1, apkRequests.get());
+    }
+    public void testInstalledRowDoesNotDownloadAndExplicitCheckOnlyFetchesCatalog() throws Exception {
+        getInstrumentation().runOnMainSync(() -> com.kukuqi.tvbox.osc.base.App.getInstance().isNormalStart = true);
+        android.app.Activity screen = getInstrumentation().startActivitySync(new android.content.Intent(host, com.kukuqi.tvbox.osc.ui.activity.MainActivity.class)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));
+        try {
+            getInstrumentation().runOnMainSync(() -> com.kukuqi.tvbox.osc.ui.dialog.FeatureSettingsDialog.modules(screen, () -> base + "/catalog.json"));
+            clickText("QuickJS ·");
+            Thread.sleep(300);
+            assertEquals("Installed row must not access network", 0, catalogRequests.get());
+            assertEquals(0, apkRequests.get());
+            clickText("检查更新");
+            for (int i = 0; i < 100 && catalogRequests.get() == 0; i++) Thread.sleep(100);
+            assertEquals(1, catalogRequests.get());
+            boolean ready = false;
+            for (int i = 0; i < 150 && !ready; i++) {
+                android.view.accessibility.AccessibilityNodeInfo root = getInstrumentation().getUiAutomation().getRootInActiveWindow();
+                ready = root != null && !root.findAccessibilityNodeInfosByText("QuickJS · 已安装 1.0.1").isEmpty();
+                if (!ready) Thread.sleep(100);
+            }
+            assertTrue("Explicit version check did not finish and refresh installed status", ready);
+            assertEquals(0, apkRequests.get());
+            try (java.io.FileOutputStream image = new java.io.FileOutputStream("/sdcard/Download/tvbox-module308-manager.png")) {
+                getInstrumentation().getUiAutomation().takeScreenshot().compress(android.graphics.Bitmap.CompressFormat.PNG, 100, image);
+            }
+        } finally { getInstrumentation().runOnMainSync(screen::finish); }
+    }
+    private void clickText(String text) throws Exception {
+        for (int i = 0; i < 100; i++) {
+            android.view.accessibility.AccessibilityNodeInfo root = getInstrumentation().getUiAutomation().getRootInActiveWindow();
+            if (root != null) for (android.view.accessibility.AccessibilityNodeInfo node : root.findAccessibilityNodeInfosByText(text)) {
+                if (node.isClickable() && node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)) return;
+            }
+            Thread.sleep(100);
+        }
+        fail("Could not click " + text);
     }
     public void testIncompleteDownloadRejected() throws Exception {
         truncate = true;
@@ -151,6 +226,28 @@ public class RuntimeModuleRegressionTest extends InstrumentationTestCase {
             File apk = new File(host.getCacheDir(), "runtime-downloads/python.apk");
             android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(host, host.getPackageName() + ".fileprovider", apk);
             try (java.io.InputStream in = host.getContentResolver().openInputStream(uri)) { assertNotNull(in); assertEquals('P', in.read()); assertEquals('K', in.read()); }
+            clickText("Python ·");
+            for (int i = 0; i < 100 && monitor.getHits() < 2; i++) Thread.sleep(100);
+            assertEquals(2, monitor.getHits());
+            assertEquals("Cancelled installer must not download APK again", 1, apkRequests.get());
+            try (android.os.ParcelFileDescriptor result = getInstrumentation().getUiAutomation().executeShellCommand("pm install -r " + fixture(RuntimeModule.PYTHON).getAbsolutePath());
+                 java.io.InputStream input = new android.os.ParcelFileDescriptor.AutoCloseInputStream(result)) {
+                assertTrue(new String(input.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).contains("Success"));
+            }
+            getInstrumentation().runOnMainSync(() -> screen.startActivity(new android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    android.net.Uri.parse("package:" + host.getPackageName()))));
+            getInstrumentation().waitForIdleSync();
+            Thread.sleep(500);
+            getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
+            for (int i = 0; i < 100; i++) {
+                android.view.accessibility.AccessibilityNodeInfo root = getInstrumentation().getUiAutomation().getRootInActiveWindow();
+                if (root != null && !root.findAccessibilityNodeInfosByText("Python · 已安装 1.0.1").isEmpty()) break;
+                if (i == 99) fail("Installer return did not refresh installed status");
+                Thread.sleep(100);
+            }
+            clickText("Python ·");
+            Thread.sleep(300);
+            assertEquals(1, apkRequests.get());
         } finally {
             getInstrumentation().removeMonitor(monitor);
             android.app.Activity screen = activity;
@@ -161,7 +258,9 @@ public class RuntimeModuleRegressionTest extends InstrumentationTestCase {
     }
     public void testInstalledModulesShareHostApiAndLoadNativeThunder() throws Exception {
         for (RuntimeModule module : RuntimeModule.values()) {
-            assertEquals("已安装 1.0.0", RuntimeModules.status(host, module));
+            assertEquals("已安装 1.0.1", RuntimeModules.status(host, module));
+            assertTrue(RuntimeModules.installed(host, module).applicationInfo.icon != 0);
+            assertNotNull(host.getPackageManager().getApplicationIcon(module.packageName(host)));
             ClassLoader loader = RuntimeModules.loader(host, module);
             assertSame(com.github.catvod.crawler.Spider.class, loader.loadClass("com.github.catvod.crawler.Spider"));
             assertNotSame(host.getClassLoader(), loader.loadClass(module.entry).getClassLoader());

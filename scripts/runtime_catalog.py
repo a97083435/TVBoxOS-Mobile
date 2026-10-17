@@ -51,18 +51,18 @@ def main():
             parser.error(f'{source} is unsigned. Sign it with the host release key first.')
         if args.aapt:
             badging = subprocess.check_output([args.aapt, 'dump', 'badging', str(source)], text=True)
-            if not badging.startswith(f"package: name='{package}' versionCode='1' versionName='1.0.0'"):
+            if not badging.startswith(f"package: name='{package}' versionCode='2' versionName='1.0.1'"):
                 parser.error(f'Unexpected module identity: {source}')
             if args.variant == 'release' and 'application-debuggable' in badging:
                 parser.error('Refusing to publish a debuggable runtime')
         if host_certificate and certificate(source) != host_certificate:
             parser.error(f'Module signing certificate differs from host: {source}')
-        filename = f'runtime-{name}-1.0.0-arm64-v8a.apk'
+        filename = f'runtime-{name}-1.0.1-arm64-v8a.apk'
         destination = output / filename
         shutil.copyfile(source, destination)
         modules.append(dict(id=name,
                             packageName=package,
-                            compatibilityId=f'tvbox-{name}-v1', versionCode=1, versionName='1.0.0',
+                            compatibilityId=f'tvbox-{name}-v1', versionCode=2, versionName='1.0.1',
                             artifacts=[dict(abi='arm64-v8a', minSdk=24, size=destination.stat().st_size,
                                             sha256=hashlib.sha256(destination.read_bytes()).hexdigest(),
                                             url=urljoin(args.base_url.rstrip('/') + '/', filename))]))

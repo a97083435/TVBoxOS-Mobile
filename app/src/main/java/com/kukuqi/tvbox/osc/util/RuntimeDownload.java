@@ -76,6 +76,7 @@ public final class RuntimeDownload {
             throw new java.io.IOException("模块暂未上架，请稍后重试或检查下载地址", last);
         throw last == null ? new java.io.IOException("无法读取模块目录") : last;
     }
+    /** Returns null when the verified installed module is already at least this version. */
     @SuppressWarnings("deprecation")
     public static synchronized File download(Context host, RuntimeModule module, String catalogUrl, Consumer<String> progress) throws Exception {
         if (catalogUrl == null || catalogUrl.trim().isEmpty()) throw new IllegalStateException("尚未设置模块下载地址");
@@ -86,6 +87,9 @@ public final class RuntimeDownload {
             JSONObject item = modules.getJSONObject(i);
             if (module.id.equals(item.getString("id"))) { selected = item; break; }
         }
+        if (selected != null && host.getPackageName().endsWith(".corevalidation") &&
+                ("com.kukuqi.tvbox.runtime." + module.id).equals(selected.getString("packageName")))
+            throw new IllegalArgumentException("这是独立验证版，不能使用正式模块目录；请切换正式应用，或配置匹配的验证目录");
         if (selected == null || !module.packageName(host).equals(selected.getString("packageName")) || !module.contract().equals(selected.getString("compatibilityId")))
             throw new IllegalArgumentException("目录未提供兼容的 " + module.title + " 模块");
         JSONArray artifacts = selected.getJSONArray("artifacts");
@@ -97,6 +101,14 @@ public final class RuntimeDownload {
         long size = artifact.getLong("size");
         String digest = artifact.getString("sha256");
         if (size <= 0 || size > LIMIT || !digest.matches("[a-fA-F0-9]{64}")) throw new IllegalArgumentException("模块校验信息无效");
+        int version = selected.getInt("versionCode");
+        if (version <= 0) throw new IllegalArgumentException("模块版本无效");
+        try {
+            if (RuntimeModules.installed(host, module).versionCode >= version) {
+                progress.accept("已是最新版本");
+                return null;
+            }
+        } catch (PackageManager.NameNotFoundException ignored) { }
         File directory = new File(host.getCacheDir(), "runtime-downloads");
         if (!directory.isDirectory() && !directory.mkdirs()) throw new java.io.IOException("无法创建下载目录");
         // Pin partial data to the expected content, so a new catalog cannot resume an old module build.
@@ -104,6 +116,15 @@ public final class RuntimeDownload {
         File[] stale = directory.listFiles((dir, name) -> name.startsWith(module.id + "-") && name.endsWith(".part") && !name.equals(part.getName()));
         if (stale != null) for (File file : stale) file.delete();
         File verified = new File(directory, module.id + ".apk");
+        if (verified.isFile()) {
+            try {
+                verifyApk(host, module, verified, size, digest, version);
+                progress.accept("安装包已就绪，等待安装");
+                return verified;
+            } catch (Exception invalidCache) {
+                if (!verified.delete()) throw new java.io.IOException("无法清理旧模块安装包", invalidCache);
+            }
+        }
         Exception last = null;
         for (String route : RuntimeTransfer.routes(artifact.getString("url"), routeMode())) {
             checkUrl(route);
@@ -111,25 +132,7 @@ public final class RuntimeDownload {
             try {
                 TRANSFER.download(route, part, size, progress);
                 progress.accept("下载完成，正在校验…");
-                MessageDigest sha = MessageDigest.getInstance("SHA-256");
-                try (InputStream in = new FileInputStream(part)) {
-                    byte[] buffer = new byte[32768]; int count;
-                    while ((count = in.read(buffer)) != -1) sha.update(buffer, 0, count);
-                }
-                StringBuilder actual = new StringBuilder();
-                for (byte b : sha.digest()) actual.append(String.format(Locale.ROOT, "%02x", b & 255));
-                if (!digest.equalsIgnoreCase(actual.toString())) throw new SecurityException("模块 SHA-256 校验失败");
-                PackageInfo info = host.getPackageManager().getPackageArchiveInfo(part.getAbsolutePath(), PackageManager.GET_META_DATA | PackageManager.GET_SIGNATURES);
-                if (info == null) throw new SecurityException("下载文件不是有效的模块 APK");
-                RuntimeModules.verify(host, module, info);
-                if (info.versionCode != selected.getInt("versionCode")) throw new SecurityException("模块版本与目录不一致");
-                try {
-                    if (info.versionCode < RuntimeModules.installed(host, module).versionCode) throw new SecurityException("禁止降级模块");
-                } catch (PackageManager.NameNotFoundException ignored) { }
-                try (ZipFile zip = new ZipFile(part)) {
-                    if (zip.stream().noneMatch(entry -> entry.getName().startsWith("lib/arm64-v8a/") && entry.getName().endsWith(".so")))
-                        throw new SecurityException("模块缺少 ARM64 原生库");
-                }
+                verifyApk(host, module, part, size, digest, version);
                 if (verified.exists() && !verified.delete()) throw new java.io.IOException("无法替换模块安装包");
                 if (!part.renameTo(verified)) throw new java.io.IOException("无法完成模块下载");
                 progress.accept("校验通过，等待安装");
@@ -141,5 +144,29 @@ public final class RuntimeDownload {
             }
         }
         throw last == null ? new java.io.IOException("模块下载失败") : last;
+    }
+
+    @SuppressWarnings("deprecation")
+    private static void verifyApk(Context host, RuntimeModule module, File apk, long size, String digest, int version) throws Exception {
+        if (apk.length() != size) throw new SecurityException("模块安装包大小不一致");
+        MessageDigest sha = MessageDigest.getInstance("SHA-256");
+        try (InputStream in = new FileInputStream(apk)) {
+            byte[] buffer = new byte[32768]; int count;
+            while ((count = in.read(buffer)) != -1) sha.update(buffer, 0, count);
+        }
+        StringBuilder actual = new StringBuilder();
+        for (byte b : sha.digest()) actual.append(String.format(Locale.ROOT, "%02x", b & 255));
+        if (!digest.equalsIgnoreCase(actual.toString())) throw new SecurityException("模块 SHA-256 校验失败");
+        PackageInfo info = host.getPackageManager().getPackageArchiveInfo(apk.getAbsolutePath(), PackageManager.GET_META_DATA | PackageManager.GET_SIGNATURES);
+        if (info == null) throw new SecurityException("下载文件不是有效的模块 APK");
+        RuntimeModules.verify(host, module, info);
+        if (info.versionCode != version) throw new SecurityException("模块版本与目录不一致");
+        try {
+            if (info.versionCode < RuntimeModules.installed(host, module).versionCode) throw new SecurityException("禁止降级模块");
+        } catch (PackageManager.NameNotFoundException ignored) { }
+        try (ZipFile zip = new ZipFile(apk)) {
+            if (zip.stream().noneMatch(entry -> entry.getName().startsWith("lib/arm64-v8a/") && entry.getName().endsWith(".so")))
+                throw new SecurityException("模块缺少 ARM64 原生库");
+        }
     }
 }

@@ -31,7 +31,7 @@ class RuntimeCatalogTest(unittest.TestCase):
         if command[0] == 'apksigner':
             return 'Signer #1 certificate SHA-256 digest: ' + 'a' * 64
         name = Path(command[-1]).parents[4].name
-        return f"package: name='com.kukuqi.tvbox.runtime.{name}' versionCode='1' versionName='1.0.0'\n"
+        return f"package: name='com.kukuqi.tvbox.runtime.{name}' versionCode='2' versionName='1.0.1'\n"
 
     def run_catalog(self, output=None):
         with patch.object(catalog, '__file__', str(self.root / 'scripts/runtime_catalog.py')), patch.object(sys, 'argv', self.args), \
