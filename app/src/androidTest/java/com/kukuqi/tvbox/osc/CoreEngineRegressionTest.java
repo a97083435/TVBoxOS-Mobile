@@ -30,7 +30,7 @@ public class CoreEngineRegressionTest extends InstrumentationTestCase {
                     "from base.spider import Spider as Base\nclass Spider(Base):\n def init(self,extend=''): pass\n def homeContent(self,filter): return {'class':[{'type_id':'1','type_name':'Python分类'}]}\n def homeVideoContent(self): return {'list':[{'vod_id':'py1','vod_name':'Python影片'}]}\n def playerContent(self,flag,id,vipFlags): return {'parse':0,'url':id,'header':{'X-Core':'py'}}\n def destroy(self): pass\n");
                 if (session.getUri().equals("/parse")) return newFixedLengthResponse(Response.Status.OK,"application/json", "{\"url\":\""+base+"/video.mp4?fixture=upstream-parser-test\",\"header\":{\"X-Resolved\":\"yes\"}}");
                 if (session.getUri().equals("/video.mp4")) {
-                    try { java.io.File file=new java.io.File("/sdcard/Download/tvbox-regression.mp4"); return newFixedLengthResponse(Response.Status.OK,"video/mp4",new java.io.FileInputStream(file),file.length()); }
+                    try { java.io.File file=new java.io.File("/sdcard/TVboxOSC-regression/tvbox-regression.mp4"); return newFixedLengthResponse(Response.Status.OK,"video/mp4",new java.io.FileInputStream(file),file.length()); }
                     catch(Exception failure) {return newFixedLengthResponse(Response.Status.NOT_FOUND,"text/plain","missing media fixture");}
                 }
                 return newFixedLengthResponse(Response.Status.OK,"text/html", "<html><video autoplay muted src='"+base+"/video.mp4?fixture=upstream-web-parser-test'></video></html>");
@@ -130,7 +130,7 @@ public class CoreEngineRegressionTest extends InstrumentationTestCase {
         int old=com.orhanobut.hawk.Hawk.get(com.kukuqi.tvbox.osc.util.HawkConfig.PLAY_TYPE,2);
         com.kukuqi.tvbox.osc.ui.activity.LocalPlayActivity[] activity={null};
         com.kukuqi.tvbox.osc.player.MyVideoView[] video={null};
-        String filePath=tracks?"/sdcard/Download/core-tracks.mkv":"/sdcard/Download/tvbox-regression.mp4";
+        String filePath=tracks?"/sdcard/TVboxOSC-regression/core-tracks.mkv":"/sdcard/TVboxOSC-regression/tvbox-regression.mp4";
         onMain(()->{
             com.kukuqi.tvbox.osc.base.App.getInstance().isNormalStart=true;
             com.orhanobut.hawk.Hawk.put(com.kukuqi.tvbox.osc.util.HawkConfig.PLAY_TYPE,backend);
@@ -183,7 +183,7 @@ public class CoreEngineRegressionTest extends InstrumentationTestCase {
         onMain(()->{
             player.setCueListener(group->{for(androidx.media3.common.text.Cue cue:group.cues)if(cue.text!=null&&cue.text.toString().contains("EXTERNAL CORE"))externalCue.set(true);});
             subtitles.setVisibility(android.view.View.VISIBLE);
-            subtitles.setSubtitlePath("/sdcard/Download/core-external.srt");
+            subtitles.setSubtitlePath("/sdcard/TVboxOSC-regression/core-external.srt");
             video.seekTo(1000);video.resume();
         });
         await(()->player.getTrackInfo().getSubtitle().size()>=2);

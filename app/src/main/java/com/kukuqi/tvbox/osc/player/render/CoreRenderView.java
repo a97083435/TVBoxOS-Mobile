@@ -16,6 +16,7 @@ import xyz.doikki.videoplayer.render.TextureRenderView;
 public final class CoreRenderView extends FrameLayout implements IRenderView {
     private final IRenderView surface;
     private final SubtitleView subtitles;
+    private final SubtitleView secondarySubtitles;
     private CorePlayer player;
     public CoreRenderView(Context context, int render) {
         super(context);
@@ -25,6 +26,9 @@ public final class CoreRenderView extends FrameLayout implements IRenderView {
         subtitles.setVisibility(GONE);
         com.kukuqi.tvbox.engine.setting.SubtitleSetting.applyStyle(subtitles);
         addView(subtitles,new LayoutParams(LayoutParams.MATCH_PARENT,LayoutParams.MATCH_PARENT));
+        secondarySubtitles = new SubtitleView(context);
+        secondarySubtitles.setVisibility(GONE);
+        addView(secondarySubtitles, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
     }
     @Override public void attachToPlayer(@NonNull AbstractPlayer value) {
         surface.attachToPlayer(value);
@@ -38,6 +42,14 @@ public final class CoreRenderView extends FrameLayout implements IRenderView {
             boolean show=player != null && player.useRenderedSubtitles();
             subtitles.setVisibility(show ? VISIBLE : GONE);
             subtitles.setCues(show ? group.cues : java.util.Collections.emptyList());
+            secondarySubtitles.setVisibility(show ? VISIBLE : GONE);
+        });
+        player.manager().setSecondarySubtitleOutput(group -> {
+            com.kukuqi.tvbox.engine.setting.SubtitleSetting.applyStyle(secondarySubtitles);
+            secondarySubtitles.setBottomPosition(0);
+            secondarySubtitles.setBottomPaddingFraction(Math.max(0, (100f - com.kukuqi.tvbox.engine.setting.SubtitleSetting.getSecondaryPosition()) / 100f));
+            secondarySubtitles.setVisibility(player != null && player.useRenderedSubtitles() ? VISIBLE : GONE);
+            secondarySubtitles.setCues(group.cues);
         });
     }
     @Override public void setVideoSize(int width,int height) {surface.setVideoSize(width,height);}
@@ -46,7 +58,10 @@ public final class CoreRenderView extends FrameLayout implements IRenderView {
     @Override public View getView() {return this;}
     @Override public Bitmap doScreenShot() {return surface.doScreenShot();}
     @Override public void release() {
-        if(player != null) { player.setRenderedCueListener(null); player.setSubtitleStyleListener(null); }
+        if(player != null) { player.setRenderedCueListener(null); player.setSubtitleStyleListener(null);
+            if (player.manager() != null && !player.manager().isReleased()) player.manager().setSecondarySubtitleOutput(null);
+        }
+        secondarySubtitles.setCues(java.util.List.of());
         player=null; subtitles.setCues(java.util.Collections.emptyList()); surface.release();
     }
 }

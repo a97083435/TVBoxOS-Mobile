@@ -39,13 +39,26 @@ public record DLNACast(CastVideo video, Runnable runnable) {
     private String buildMetaData() {
         try {
             DIDLContent content = new DIDLContent();
-            VideoItem item = new VideoItem("0", "-1", video.name(), "", new Res(new ProtocolInfo("http-get:*:video/*:*"), 0L, video.url()));
+            VideoItem item = new VideoItem("0", "-1", video.name(), "", new Res(new ProtocolInfo("http-get:*:" + contentType(video.url()) + ":*"), 0L, video.url()));
             if (!video.headers().isEmpty()) item.addProperty(new DIDLObject.Property.DC.DESCRIPTION(App.gson().toJson(video.headers())));
             content.addItem(item);
             return new DIDLParser().generate(content);
         } catch (Exception e) {
             return "";
         }
+    }
+
+    private static String contentType(String url) {
+        String path = android.net.Uri.parse(url).getPath();
+        if (path == null) return "video/*";
+        path = path.toLowerCase(Locale.ROOT);
+        if (path.endsWith(".m3u8")) return "application/vnd.apple.mpegurl";
+        if (path.endsWith(".mpd")) return "application/dash+xml";
+        if (path.endsWith(".mp4") || path.endsWith(".m4v")) return "video/mp4";
+        if (path.endsWith(".mkv")) return "video/x-matroska";
+        if (path.endsWith(".ts") || path.endsWith(".m2ts")) return "video/mp2t";
+        if (path.endsWith(".mp3")) return "audio/mpeg";
+        return "video/*";
     }
 
     private SetAVTransportURI uriAction(ControlPoint control, RemoteService service) {

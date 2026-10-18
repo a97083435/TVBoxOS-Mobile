@@ -26,6 +26,7 @@ tasks.configureEach { task ->
 android {
     namespace 'com.kukuqi.tvbox.osc'
     compileSdkVersion 37
+    ndkVersion '29.0.14206865'
     ["python", "quickjs", "thunder", "nodejs", "bdj"].each { sourceSets.main.res.srcDir(rootProject.file("runtime/icons/${it}")) }
     useLibrary 'android.test.runner'
     useLibrary 'android.test.base'
@@ -36,8 +37,8 @@ android {
         minSdkVersion 24
         targetSdkVersion 34
         buildConfigField 'String', 'RUNTIME_CATALOG_URL', groovy.json.JsonOutput.toJson(providers.gradleProperty('runtimeCatalogUrl').getOrElse('https://github.com/kukuqi666/TVboxOSC/releases/latest/download/catalog.json'))
-        versionCode 309
-        versionName '3.0.9'
+        versionCode 310
+        versionName '3.1.0'
         multiDexEnabled true
         testInstrumentationRunner 'com.kukuqi.tvbox.osc.RegressionTestRunner'
         //设置room的Schema的位置

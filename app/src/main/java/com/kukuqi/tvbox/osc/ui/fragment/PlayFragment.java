@@ -1062,7 +1062,7 @@ public class PlayFragment extends BaseLazyFragment {
             return;
         }
         if (core.manager() == null || !core.manager().canPreloadNext() || corePlayResult == null
-                || corePlayResult.needParse() || corePlayResult.isUseParse() || corePlayResult.getDrm() != null) return;
+                || corePlayResult.getDrm() != null) return;
         List<VodInfo.VodSeries> episodes = mVodInfo.seriesMap.get(mVodInfo.playFlag);
         int index = mVodInfo.playIndex + 1;
         if (episodes == null || index >= episodes.size()) return;
@@ -1072,13 +1072,16 @@ public class PlayFragment extends BaseLazyFragment {
         String key = sourceKey, flag = mVodInfo.playFlag;
         int quality = corePlayResult.getUrl().getPosition();
         long start = mVodPlayerCfg == null ? 0 : Math.max(0, mVodPlayerCfg.optLong("st", 0) * 1000);
+        var config = com.kukuqi.tvbox.engine.api.config.VodConfig.get();
+        var selectedParse = com.kukuqi.tvbox.engine.bean.Parse.objectFrom(com.kukuqi.tvbox.engine.App.gson().toJsonTree(config.getParse()));
+        var parseLines = config.getParses().stream().map(item -> com.kukuqi.tvbox.engine.bean.Parse.objectFrom(
+                com.kukuqi.tvbox.engine.App.gson().toJsonTree(item))).toList();
         nextEpisode.request(new com.kukuqi.tvbox.osc.core.EpisodePreloader.Key(key, mVodInfo.id, flag, episode.url), () -> {
             com.kukuqi.tvbox.engine.bean.Result result = com.kukuqi.tvbox.osc.core.CoreBridge.preload(key, flag, episode.url);
             if (quality >= 0 && quality < result.getUrl().getValues().size()) result.getUrl().set(quality);
-            if (result.needParse() || result.isUseParse() || result.hasMsg() || result.getDrm() != null || !result.getPlayUrl().isEmpty()
-                    || com.kukuqi.tvbox.engine.player.extractor.Source.get().requiresExtraction(result)
-                    || !(result.getUrl().v().startsWith("https://") || result.getUrl().v().startsWith("http://"))) return null;
-            return result;
+            // Multiple qualities need their original parsing metadata when switching later.
+            if (result.getUrl().isMulti() && (result.needParse() || !result.getPlayUrl().isEmpty())) return null;
+            return com.kukuqi.tvbox.engine.player.parse.PreloadResolver.resolve(result, selectedParse, parseLines);
         }, result -> {
             if (mVideoView == null || mVideoView.getMediaPlayer() != core || core.manager() == null || core.manager().isReleased()) return;
             Bundle extras = new Bundle();
@@ -1186,6 +1189,9 @@ public class PlayFragment extends BaseLazyFragment {
     }
 
     private void doParse(ParseBean pb) {
+        nextEpisode.clear();
+        if (mVideoView != null && mVideoView.getMediaPlayer() instanceof com.kukuqi.tvbox.osc.player.CorePlayer core
+                && core.manager() != null) core.manager().clearPreload();
         stopParse();
         if (pb == null) { setTip("当前配置没有解析线路", false, true); return; }
         setTip(pb.getType() == 0 ? "正在嗅探播放地址" : "正在解析播放地址", true, false);

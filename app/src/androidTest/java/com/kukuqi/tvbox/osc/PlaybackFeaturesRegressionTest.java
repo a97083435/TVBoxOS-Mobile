@@ -28,7 +28,7 @@ import java.nio.file.Files;
 
 /** Exercises real channel selection, Hawk storage and video playback, preserving user settings. */
 public class PlaybackFeaturesRegressionTest extends InstrumentationTestCase {
-    private static final String VIDEO = "/sdcard/Download/tvbox-regression.mp4";
+    private static final String VIDEO = "/sdcard/TVboxOSC-regression/tvbox-regression.mp4";
     private static final String[] STATE_KEYS = {HawkConfig.LIVE_URL, HawkConfig.LIVE_CHANNEL, LiveFavorites.KEY, "local_playback_speed"};
     private File stateFile() { return new File(getInstrumentation().getTargetContext().getFilesDir(), "playback-regression-state.json"); }
 

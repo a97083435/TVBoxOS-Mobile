@@ -28,7 +28,7 @@ public class NextEpisodeCacheRegressionTest extends InstrumentationTestCase {
                 if (!"next".equals(session.getHeaders().get("x-episode")) && !"current".equals(session.getHeaders().get("x-episode")))
                     return newFixedLengthResponse(Response.Status.FORBIDDEN, "text/plain", "missing authorization");
                 try {
-                    File file = new File("/sdcard/Download/tvbox-regression.mp4");
+                    File file = new File("/sdcard/TVboxOSC-regression/tvbox-regression.mp4");
                     return newFixedLengthResponse(Response.Status.OK, "video/mp4", new FileInputStream(file), file.length());
                 } catch (Exception e) { return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "fixture missing"); }
             }
@@ -37,7 +37,7 @@ public class NextEpisodeCacheRegressionTest extends InstrumentationTestCase {
     }
     @Override protected void tearDown() throws Exception { server.stop(); super.tearDown(); }
     public void testPreloadPersistsAndRecreatedPlaybackReadsCachedBytesOffline() throws Exception {
-        assertTrue(new File("/sdcard/Download/tvbox-regression.mp4").isFile());
+        assertTrue(new File("/sdcard/TVboxOSC-regression/tvbox-regression.mp4").isFile());
         String url = base + "/next.mp4?run=" + System.nanoTime();
         Bundle extras = new Bundle(); extras.putBoolean(ExoMediaSourceFactory.PRELOAD_CACHE_KEY, true);
         MediaItem item = MediaItemFactory.from(PlaySpec.from("next", url, new HashMap<>(Map.of("X-Episode", "next")), new MediaMetadata.Builder().setExtras(extras).build()));

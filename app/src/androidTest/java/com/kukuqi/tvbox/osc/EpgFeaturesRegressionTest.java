@@ -69,7 +69,7 @@ public class EpgFeaturesRegressionTest extends InstrumentationTestCase {
     public void testLiveSummaryGuideDatesAndSourceWithoutEpg() throws Exception {
         try (Server server = new Server()) {
             File fixture = new File(getInstrumentation().getTargetContext().getFilesDir(), "epg-live-fixture.json");
-            String stream = "file:///sdcard/Download/tvbox-regression.mp4";
+            String stream = "file:///sdcard/TVboxOSC-regression/tvbox-regression.mp4";
             String json = "[{\"group\":\"新闻\",\"epg\":\"" + server.url("guide.json?ch={id}&date={date}")
                     + "\",\"channels\":[{\"name\":\"新闻 台\",\"tvg-id\":\"news-1\",\"urls\":[\"" + stream + "\"]}]},"
                     + "{\"group\":\"地方\",\"channels\":[{\"name\":\"无节目源频道\",\"urls\":[\"" + stream + "\"]}]}]";

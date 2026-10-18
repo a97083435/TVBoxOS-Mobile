@@ -81,6 +81,24 @@
 -keep class com.kukuqi.tvbox.engine.player.exo.ExoPlayerSession { *; }
 -keep class com.kukuqi.tvbox.engine.player.exo.ExoMediaSourceFactory { *; }
 -keep class com.kukuqi.tvbox.engine.player.PlayerManager { *; }
+-keep class com.kukuqi.tvbox.engine.player.subtitle.AssNative { *; }
+-keepclassmembers class com.kukuqi.tvbox.engine.player.subtitle.AssSubtitleDecoder { public static *** isAvailable(...); }
+-keep class com.kukuqi.tvbox.engine.player.parse.PreloadResolver { public *; }
+# Keep the small playback-settings and cast API callable by device diagnostics.
+-keep,allowobfuscation class com.kukuqi.tvbox.engine.setting.PlayerSetting {
+    public static boolean isLibass();
+    public static void putLibass(boolean);
+}
+-keep,allowobfuscation class com.kukuqi.tvbox.engine.setting.SubtitleSetting {
+    public static int getSecondaryMode();
+    public static void putSecondaryMode(int);
+}
+-keep,allowobfuscation class com.kukuqi.tvbox.engine.dlna.DLNACastManager {
+    public static *** get();
+    public void init(android.content.Context);
+    public void release(android.content.Context);
+}
+-keep,allowobfuscation class com.kukuqi.tvbox.engine.dlna.DLNACast { public *; }
 -keep class com.kukuqi.tvbox.engine.player.media.** { *; }
 -keep interface com.kukuqi.tvbox.engine.player.engine.PlayerEngine { *; }
 -keep class com.kukuqi.tvbox.engine.player.engine.PlayerEngine$* { *; }

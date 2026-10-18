@@ -39,6 +39,8 @@ public class ExoMediaSourceFactory implements MediaSource.Factory {
 
     private final DefaultMediaSourceFactory defaultMediaSourceFactory;
     private ExtractorsFactory extractorsFactory;
+    private DrmSessionManagerProvider drmSessionManagerProvider;
+    private LoadErrorHandlingPolicy loadErrorHandlingPolicy;
 
     public ExoMediaSourceFactory() {
         defaultMediaSourceFactory = new DefaultMediaSourceFactory(getDataSourceFactory(), getExtractorsFactory());
@@ -92,12 +94,14 @@ public class ExoMediaSourceFactory implements MediaSource.Factory {
     @NonNull
     @Override
     public MediaSource.Factory setDrmSessionManagerProvider(@NonNull DrmSessionManagerProvider drmSessionManagerProvider) {
+        this.drmSessionManagerProvider = drmSessionManagerProvider;
         return this;
     }
 
     @NonNull
     @Override
     public MediaSource.Factory setLoadErrorHandlingPolicy(@NonNull LoadErrorHandlingPolicy loadErrorHandlingPolicy) {
+        this.loadErrorHandlingPolicy = loadErrorHandlingPolicy;
         return this;
     }
 
@@ -112,8 +116,11 @@ public class ExoMediaSourceFactory implements MediaSource.Factory {
     public MediaSource createMediaSource(@NonNull MediaItem mediaItem) {
         boolean writes = mediaItem.mediaMetadata.extras != null && mediaItem.mediaMetadata.extras.getBoolean(PRELOAD_CACHE_KEY);
         // One factory per item: a next episode's authorization headers must never replace the current one's.
-        return new DefaultMediaSourceFactory(getDataSourceFactory(ExoUtil.extractHeaders(mediaItem), writes), getExtractorsFactory())
-                .createMediaSource(mediaItem);
+        DefaultMediaSourceFactory factory = new DefaultMediaSourceFactory(getDataSourceFactory(ExoUtil.extractHeaders(mediaItem), writes), getExtractorsFactory());
+        factory.experimentalParseSubtitlesDuringExtraction(false);
+        if (drmSessionManagerProvider != null) factory.setDrmSessionManagerProvider(drmSessionManagerProvider);
+        if (loadErrorHandlingPolicy != null) factory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy);
+        return factory.createMediaSource(mediaItem);
     }
 
     private ExtractorsFactory getExtractorsFactory() {

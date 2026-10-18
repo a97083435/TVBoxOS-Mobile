@@ -4,6 +4,10 @@ import java.util.Locale;
 public final class BdjSupport {
     private static Object runtime;
     private BdjSupport() {}
+    public static boolean isMenu(String url) {
+        if (url == null) return false;
+        return url.toLowerCase(Locale.ROOT).matches("^(bd|br|bluray)://menu(?:/.*)?$");
+    }
     public static boolean isDisc(String url) {
         if (url == null) return false;
         String value = url.toLowerCase(Locale.ROOT).split("[?#]", 2)[0];
@@ -18,6 +22,6 @@ public final class BdjSupport {
     public static boolean shouldPrepare(String url) {
         if (!isDisc(url)) return false;
         try { RuntimeModules.installed(App.get(), RuntimeModule.BDJ); return true; }
-        catch (Exception missing) { return url.contains("://menu/"); }
+        catch (Exception missing) { return isMenu(url); }
     }
 }

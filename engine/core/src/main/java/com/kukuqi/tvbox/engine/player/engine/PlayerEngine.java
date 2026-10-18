@@ -52,6 +52,8 @@ public interface PlayerEngine {
     default void applySubtitleStyle() {
     }
 
+    default void setSecondarySubtitleOutput(java.util.function.Consumer<androidx.media3.common.text.CueGroup> output) {}
+
     default SecondarySubtitleState getSecondarySubtitleState() {
         return SecondarySubtitleState.EMPTY;
     }

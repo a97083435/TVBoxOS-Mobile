@@ -18,6 +18,7 @@ public class MpvPlayerEngine implements PlayerEngine, Player.Listener {
     private final MpvErrorMessageProvider provider;
     private final MpvPlayerEffect effect;
     private final MpvPlayer player;
+    private final Player.Listener listener;
     private PlaySpec spec;
     private int generation;
     private boolean released;
@@ -25,6 +26,7 @@ public class MpvPlayerEngine implements PlayerEngine, Player.Listener {
     private static final java.util.concurrent.ExecutorService discWorker = java.util.concurrent.Executors.newSingleThreadExecutor();
 
     public MpvPlayerEngine(int decode, Player.Listener listener) {
+        this.listener = listener;
         this.player = MpvUtil.buildPlayer(decode, listener);
         this.provider = new MpvErrorMessageProvider();
         this.effect = new MpvPlayerEffect(player);
@@ -124,6 +126,11 @@ public class MpvPlayerEngine implements PlayerEngine, Player.Listener {
         secondarySelection = null;
         applySubtitleStyle();
         int request = ++generation;
+        if (com.kukuqi.tvbox.engine.runtime.BdjSupport.isMenu(spec.getUrl())) {
+            listener.onPlayerError(new PlaybackException("当前播放内核不支持交互式蓝光菜单，请选择主标题或章节播放", null,
+                    PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED));
+            return;
+        }
         if (com.kukuqi.tvbox.engine.runtime.BdjSupport.shouldPrepare(spec.getUrl())) {
             discWorker.execute(() -> {
                 try {
@@ -134,7 +141,7 @@ public class MpvPlayerEngine implements PlayerEngine, Player.Listener {
                         if (!released && generation == request) {
                             android.widget.Toast.makeText(com.kukuqi.tvbox.engine.App.get(), "BD-J 加载失败：" + failure.getMessage(), android.widget.Toast.LENGTH_LONG).show();
                             // Main-title playback remains possible without Java menus.
-                            if (!spec.getUrl().contains("://menu/")) startInternal(startPositionMs);
+                            startInternal(startPositionMs);
                         }
                     });
                 }
@@ -162,6 +169,8 @@ public class MpvPlayerEngine implements PlayerEngine, Player.Listener {
 
     @Override
     public String getErrorMessage(PlaybackException e) {
+        if (spec != null && com.kukuqi.tvbox.engine.runtime.BdjSupport.isMenu(spec.getUrl()))
+            return "当前播放内核不支持交互式蓝光菜单，请选择主标题或章节播放";
         return provider.get(e);
     }
 

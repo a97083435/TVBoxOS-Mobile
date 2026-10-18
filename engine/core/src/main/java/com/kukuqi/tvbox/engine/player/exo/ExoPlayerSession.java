@@ -30,13 +30,16 @@ final class ExoPlayerSession {
     private final DecodeTrackSelectorFactory trackSelectorFactory;
     private final DefaultPreloadManager preloadManager;
     private final ExoPlayer player;
+    private final ExoSubtitleController subtitles;
+    ExoSubtitleController subtitles() { return subtitles; }
 
     @Nullable
     private PreloadRequest preloadRequest;
 
     ExoPlayerSession(int decode, Player.Listener listener, AudioProcessor audioProcessor) {
         this.trackSelectorFactory = new DecodeTrackSelectorFactory(decode);
-        DefaultPreloadManager.Builder builder = new DefaultPreloadManager.Builder(App.get(), ignored -> DefaultPreloadManager.PreloadStatus.specifiedRangeLoaded(getPreloadStartPositionMs(), PRELOAD_DURATION_MS)).setMediaSourceFactorySupplier(ExoMediaSourceFactory.supplier()).setRenderersFactory(ExoUtil.buildRenderersFactory(audioProcessor)).setTrackSelectorFactory(trackSelectorFactory).setLoadControl(ExoUtil.buildLoadControl(MAX_PRELOAD_BUFFER_BYTES));
+        this.subtitles = new ExoSubtitleController(this);
+        DefaultPreloadManager.Builder builder = new DefaultPreloadManager.Builder(App.get(), ignored -> DefaultPreloadManager.PreloadStatus.specifiedRangeLoaded(getPreloadStartPositionMs(), PRELOAD_DURATION_MS)).setMediaSourceFactorySupplier(ExoMediaSourceFactory.supplier()).setRenderersFactory(ExoUtil.buildRenderersFactory(audioProcessor, subtitles::onCues)).setTrackSelectorFactory(trackSelectorFactory).setLoadControl(ExoUtil.buildLoadControl(MAX_PRELOAD_BUFFER_BYTES));
         this.preloadManager = builder.build();
         this.preloadManager.addListener(new PreloadListener());
         this.player = ExoUtil.buildPlayer(listener, builder);
@@ -48,6 +51,10 @@ final class ExoPlayerSession {
 
     void setDecode(int decode) {
         trackSelectorFactory.setDecode(decode);
+    }
+
+    void selectSecondary(androidx.media3.common.TrackSelectionOverride selection, boolean auto) {
+        trackSelectorFactory.selectSecondary(selection, auto);
     }
 
     void preload(MediaItem mediaItem, long startPositionMs) {
@@ -75,6 +82,7 @@ final class ExoPlayerSession {
     }
 
     void release() {
+        subtitles.release();
         preloadRequest = null;
         preloadManager.release();
         player.release();
@@ -109,6 +117,9 @@ final class ExoPlayerSession {
     private static final class DecodeTrackSelectorFactory implements TrackSelector.Factory {
 
         private final List<DecodeTrackSelector> trackSelectors = new ArrayList<>(2);
+        private final List<DualTextTrackSelector> dualSelectors = new ArrayList<>(2);
+        private androidx.media3.common.TrackSelectionOverride secondary;
+        private boolean automatic;
         private int decode;
 
         private DecodeTrackSelectorFactory(int decode) {
@@ -117,13 +128,21 @@ final class ExoPlayerSession {
 
         @NonNull
         @Override
-        public TrackSelector createTrackSelector(@NonNull Context context) {
+        public synchronized TrackSelector createTrackSelector(@NonNull Context context) {
             DecodeTrackSelector trackSelector = ExoUtil.buildTrackSelector(decode);
             trackSelectors.add(trackSelector);
-            return trackSelector;
+            DualTextTrackSelector dual = new DualTextTrackSelector(trackSelector);
+            dual.select(secondary, automatic);
+            dualSelectors.add(dual);
+            return dual;
         }
 
-        private void setDecode(int decode) {
+        private synchronized void selectSecondary(androidx.media3.common.TrackSelectionOverride selection, boolean auto) {
+            secondary = selection; automatic = auto;
+            for (var selector : dualSelectors) selector.select(selection, auto);
+        }
+
+        private synchronized void setDecode(int decode) {
             if (this.decode == decode) return;
             this.decode = decode;
             for (DecodeTrackSelector trackSelector : trackSelectors) ExoUtil.setDecodePreferences(trackSelector, decode);

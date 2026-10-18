@@ -20,7 +20,7 @@ public final class AndroidFontConfig {
 
     @Nullable
     public static synchronized File prepare() {
-        File output = Path.mpv(FONTS_CONF);
+        File output = Path.cache(FONTS_CONF);
         if (Path.exists(output)) return output;
         try (FileOutputStream stream = new FileOutputStream(output, false)) {
             writeConfig(stream, Path.mpvCache());

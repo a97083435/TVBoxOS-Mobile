@@ -97,7 +97,22 @@ public class ExoUtil {
     }
 
     static RenderersFactory buildRenderersFactory(AudioProcessor audioProcessor) {
+        return buildRenderersFactory(audioProcessor, null);
+    }
+
+    static RenderersFactory buildRenderersFactory(AudioProcessor audioProcessor, androidx.media3.exoplayer.text.TextOutput secondary) {
         DefaultRenderersFactory factory = new DefaultRenderersFactory(App.get()) {
+            @Override protected void buildTextRenderers(Context context, androidx.media3.exoplayer.text.TextOutput output,
+                    android.os.Looper looper, int mode, java.util.ArrayList<androidx.media3.exoplayer.Renderer> out) {
+                var primary = new androidx.media3.exoplayer.text.TextRenderer(output, looper, com.kukuqi.tvbox.engine.player.subtitle.AssSubtitleDecoder.FACTORY);
+                primary.experimentalSetLegacyDecodingEnabled(true);
+                out.add(primary);
+                if (secondary != null) {
+                    var second = new androidx.media3.exoplayer.text.TextRenderer(secondary, looper, com.kukuqi.tvbox.engine.player.subtitle.AssSubtitleDecoder.FACTORY);
+                    second.experimentalSetLegacyDecodingEnabled(true);
+                    out.add(second);
+                }
+            }
             @Override
             protected AudioSink buildAudioSink(@NonNull Context context, boolean enableFloatOutput, boolean enableAudioOutputPlaybackParams) {
                 return ExoUtil.buildAudioSink(context, enableFloatOutput, enableAudioOutputPlaybackParams, audioProcessor);

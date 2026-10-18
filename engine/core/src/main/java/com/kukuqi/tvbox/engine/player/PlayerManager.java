@@ -321,6 +321,10 @@ public class PlayerManager implements ParseCallback {
         if (engine != null) engine.applySubtitleStyle();
     }
 
+    public void setSecondarySubtitleOutput(java.util.function.Consumer<androidx.media3.common.text.CueGroup> output) {
+        if (engine != null) engine.setSecondarySubtitleOutput(output);
+    }
+
     public SecondarySubtitleState getSecondarySubtitleState() {
         return engine == null ? SecondarySubtitleState.EMPTY : engine.getSecondarySubtitleState();
     }

@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /** End-to-end behavior using a local HTTP source and a real H.264 video. */
 public class FeatureRegressionTest extends InstrumentationTestCase {
-    private static final String VIDEO = "/sdcard/Download/tvbox-regression.mp4";
+    private static final String VIDEO = "/sdcard/TVboxOSC-regression/tvbox-regression.mp4";
     private final Map<String,Object> before = new HashMap<>();
     private final String[] keys = {HawkConfig.API_URL,HawkConfig.LIVE_URL,HawkConfig.HOME_API,HawkConfig.HOME_REC,HawkConfig.PLAY_TYPE,
             HawkConfig.BACKGROUND_PLAY_TYPE,HawkConfig.PRIVATE_BROWSING,HawkConfig.IJK_CODEC,"danmaku_load","danmaku_show","danmaku_auto",

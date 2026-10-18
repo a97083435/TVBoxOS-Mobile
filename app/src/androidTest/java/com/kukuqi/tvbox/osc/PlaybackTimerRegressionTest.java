@@ -11,7 +11,7 @@ import java.io.File;
 /** Uses a real 120-second H.264/AAC video pushed to the emulator by the validation script. */
 public class PlaybackTimerRegressionTest extends InstrumentationTestCase {
     public void testTimerPausesRealPlaybackAndLifecycleDoesNotResumeIt() throws Exception {
-        String path = "/sdcard/Download/tvbox-regression.mp4";
+        String path = "/sdcard/TVboxOSC-regression/tvbox-regression.mp4";
         assertTrue("Push the regression video before running this test", new File(path).isFile());
         getInstrumentation().runOnMainSync(() -> App.getInstance().isNormalStart = true);
         Intent intent = new Intent(getInstrumentation().getTargetContext(), LocalPlayActivity.class);

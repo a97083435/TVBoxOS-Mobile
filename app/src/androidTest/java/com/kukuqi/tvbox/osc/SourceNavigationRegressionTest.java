@@ -105,7 +105,7 @@ public class SourceNavigationRegressionTest extends InstrumentationTestCase {
     public void testLocalVideoTabScansFoldersAndOpensVideoList() throws Exception {
         java.util.concurrent.CountDownLatch scanned = new java.util.concurrent.CountDownLatch(1);
         android.media.MediaScannerConnection.scanFile(getInstrumentation().getTargetContext(),
-                new String[]{"/sdcard/Download/tvbox-regression.mp4"}, new String[]{"video/mp4"}, (path, uri) -> scanned.countDown());
+                new String[]{"/sdcard/TVboxOSC-regression/tvbox-regression.mp4"}, new String[]{"video/mp4"}, (path, uri) -> scanned.countDown());
         assertTrue(scanned.await(10, java.util.concurrent.TimeUnit.SECONDS));
         onMain(() -> App.getInstance().isNormalStart = true);
         MainActivity main = (MainActivity) getInstrumentation().startActivitySync(new Intent(getInstrumentation().getTargetContext(), MainActivity.class)

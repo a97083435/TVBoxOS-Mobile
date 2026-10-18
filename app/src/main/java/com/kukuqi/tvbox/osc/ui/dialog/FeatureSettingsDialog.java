@@ -211,11 +211,11 @@ public final class FeatureSettingsDialog {
             panel.dialog.dismiss();
             if (active.getAsBoolean()) playbackOffsets(activity, manager, active);
         });
-        if (manager.getEngine() == PlayerSetting.ENGINE_MPV) {
-            panel.row("双字幕 ›", () -> {
+        panel.row("双字幕 ›", () -> {
                 panel.dialog.dismiss();
                 if (active.getAsBoolean()) secondarySubtitle(activity, manager, active);
             });
+        if (manager.getEngine() == PlayerSetting.ENGINE_MPV) {
             panel.row("MPV 自定义配置 ›", () -> {
                 panel.dialog.dismiss();
                 edit(activity, "MPV 自定义配置", "每行填写一个 mpv.conf 选项，保存后下次播放生效。播放器管理的选项仍以界面设置为准。",
@@ -462,11 +462,12 @@ public final class FeatureSettingsDialog {
                 com.kukuqi.tvbox.engine.setting.DecodeSetting::putAudioPassThrough);
         panel.toggle("静音片段跳过（Exo）", com.kukuqi.tvbox.engine.setting.SpeedSetting::isSkipSilence,
                 com.kukuqi.tvbox.engine.setting.SpeedSetting::putSkipSilence);
+        panel.toggle("ASS 特效字幕（Exo，下次播放生效）", PlayerSetting::isLibass, PlayerSetting::putLibass);
         panel.toggle("MPV Vulkan渲染", PlayerSetting::isMpvVulkan,
                 PlayerSetting::putMpvVulkan);
         panel.toggle("MPV GPU Next", PlayerSetting::isMpvGpuNext,
                 PlayerSetting::putMpvGpuNext);
-        panel.choice("MPV双字幕", new String[]{"默认关闭", "关闭", "自动选择"}, new int[]{-3, -2, -1},
+        panel.choice("双字幕", new String[]{"默认关闭", "关闭", "自动选择"}, new int[]{-3, -2, -1},
                 SubtitleSetting::getSecondaryMode,
                 SubtitleSetting::putSecondaryMode);
         panel.choice("副字幕位置", new String[]{"顶部", "10%", "25%", "50%", "75%", "底部"}, new int[]{0, 10, 25, 50, 75, 100},

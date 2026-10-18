@@ -48,6 +48,7 @@ public class ExoPlayerEngine implements PlayerEngine, AnalyticsListener {
     @Override
     public void onTracksChanged(@NonNull EventTime eventTime, @NonNull Tracks tracks) {
         effect.applyVideoEffect();
+        session.subtitles().onTracksChanged();
     }
 
     @Override
@@ -84,8 +85,19 @@ public class ExoPlayerEngine implements PlayerEngine, AnalyticsListener {
         session.setDecode(decode);
     }
 
+    @Override public void applySubtitleStyle() { session.subtitles().applySubtitleStyle(); }
+    @Override public SecondarySubtitleState getSecondarySubtitleState() { return session.subtitles().getSecondarySubtitleState(); }
+    @Override public void setSecondarySubtitleSelection(androidx.media3.common.TrackSelectionOverride selection) {
+        session.subtitles().setSecondarySubtitleSelection(selection);
+    }
+    @Override public void setSecondarySubtitleOutput(java.util.function.Consumer<androidx.media3.common.text.CueGroup> output) {
+        session.subtitles().setOutput(output);
+    }
+
     @Override
     public void start(PlaySpec spec, long startPositionMs) {
+        session.subtitles().clear();
+        session.subtitles().applySubtitleStyle();
         this.spec = spec;
         startInternal(startPositionMs);
     }

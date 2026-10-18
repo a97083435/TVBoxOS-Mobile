@@ -7,6 +7,18 @@ import com.kukuqi.tvbox.osc.ui.activity.MainActivity;
 
 /** Runtime reflection paths that cannot be discovered from ordinary Java calls. */
 public class ShrinkRegressionTest extends InstrumentationTestCase {
+    private boolean normalStart;
+    @Override protected void setUp() throws Exception {
+        super.setUp();
+        getInstrumentation().runOnMainSync(() -> {
+            normalStart = com.kukuqi.tvbox.osc.base.App.getInstance().isNormalStart;
+            com.kukuqi.tvbox.osc.base.App.getInstance().isNormalStart = true;
+        });
+    }
+    @Override protected void tearDown() throws Exception {
+        getInstrumentation().runOnMainSync(() -> com.kukuqi.tvbox.osc.base.App.getInstance().isNormalStart = normalStart);
+        super.tearDown();
+    }
     public void testSettingsSelectionDialogInflatesAfterOptimization() throws Exception {
         MainActivity page = (MainActivity) getInstrumentation().startActivitySync(
                 new Intent(getInstrumentation().getTargetContext(), MainActivity.class)

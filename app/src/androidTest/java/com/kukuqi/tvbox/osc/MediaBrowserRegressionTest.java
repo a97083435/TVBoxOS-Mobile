@@ -106,7 +106,7 @@ public class MediaBrowserRegressionTest extends InstrumentationTestCase {
         boolean normal = com.kukuqi.tvbox.osc.base.App.getInstance().isNormalStart;
         fi.iki.elonen.NanoHTTPD server = new fi.iki.elonen.NanoHTTPD("127.0.0.1", 0) {
             @Override public Response serve(IHTTPSession session) {
-                try { File file = new File("/sdcard/Download/tvbox-regression.mp4"); return newFixedLengthResponse(Response.Status.OK, "video/mp4", new FileInputStream(file), file.length()); }
+                try { File file = new File("/sdcard/TVboxOSC-regression/tvbox-regression.mp4"); return newFixedLengthResponse(Response.Status.OK, "video/mp4", new FileInputStream(file), file.length()); }
                 catch (IOException e) { return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "missing fixture"); }
             }
         };
@@ -154,7 +154,7 @@ public class MediaBrowserRegressionTest extends InstrumentationTestCase {
     }
     public void testLiveIntentSelectsDuplicateNamesByIndexAndHandlesNewIntent() throws Exception {
         File playlist = new File(getInstrumentation().getTargetContext().getCacheDir(), "media-browser-live-play.json");
-        String group = "{\"group\":\"公开\",\"channels\":[{\"name\":\"同名台\",\"urls\":[\"file:///sdcard/Download/tvbox-regression.mp4\"]}]}";
+        String group = "{\"group\":\"公开\",\"channels\":[{\"name\":\"同名台\",\"urls\":[\"file:///sdcard/TVboxOSC-regression/tvbox-regression.mp4\"]}]}";
         try (FileWriter writer = new FileWriter(playlist)) { writer.write("["+group+","+group+"]"); }
         boolean normal = com.kukuqi.tvbox.osc.base.App.getInstance().isNormalStart;
         com.kukuqi.tvbox.osc.ui.activity.LiveActivity activity = null;
