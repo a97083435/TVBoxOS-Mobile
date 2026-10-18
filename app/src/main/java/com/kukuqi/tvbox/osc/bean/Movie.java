@@ -65,6 +65,9 @@ public class Movie implements Serializable {
         @XStreamAlias("des")
         public String des;// <![CDATA[权来]
         public String sourceKey;
+        public String action;
+        public String cate;
+        public String cardStyle;
         @XStreamAlias("tag")
         public String tag;
 

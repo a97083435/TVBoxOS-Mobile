@@ -87,6 +87,7 @@ public class SourceViewModel extends ViewModel {
                 com.kukuqi.tvbox.engine.bean.Result result = com.kukuqi.tvbox.osc.core.SourceAccess.call(sourceKey,
                         () -> com.kukuqi.tvbox.engine.api.SiteApi.homeContent(com.kukuqi.tvbox.osc.core.CoreBridge.site(sourceKey)));
                 AbsSortXml categories = sortJson(sortResult, result.toString());
+                if (categories != null && categories.classes != null) for (MovieSort.SortData category : categories.classes.sortList) category.sourceKey = sourceKey;
                 if (categories != null && Hawk.get(HawkConfig.HOME_REC, 1) == 1) {
                     AbsXml videos = json(null, result.toString(), sourceKey);
                     if (videos != null && videos.movie != null) categories.videoList = videos.movie.videoList;
@@ -96,12 +97,20 @@ public class SourceViewModel extends ViewModel {
         });
     }
     // categoryContent
+    private final java.util.concurrent.atomic.AtomicLong categoryEpoch = new java.util.concurrent.atomic.AtomicLong();
+    public void invalidateList() { categoryEpoch.incrementAndGet(); }
     public void getList(MovieSort.SortData sortData, int page) {
-        String key = ApiConfig.get().getHomeSourceBean().getKey();
+        long request = categoryEpoch.incrementAndGet();
+        String key = TextUtils.isEmpty(sortData.sourceKey) ? ApiConfig.get().getHomeSourceBean().getKey() : sortData.sourceKey;
+        String category = sortData.id;
+        java.util.HashMap<String, String> filters = new java.util.HashMap<>(sortData.filterSelect);
         spThreadPool.execute(() -> {
-            try { json(listResult, com.kukuqi.tvbox.osc.core.SourceAccess.call(key,
-                    () -> com.kukuqi.tvbox.engine.api.SiteApi.categoryContent(key, sortData.id, String.valueOf(page), true, sortData.filterSelect)).toString(), key); }
-            catch(Throwable e) { android.util.Log.e("TVboxCore", "category", e); listResult.postValue(null); }
+            try {
+                AbsXml result = json(null, com.kukuqi.tvbox.osc.core.SourceAccess.call(key,
+                        () -> com.kukuqi.tvbox.engine.api.SiteApi.categoryContent(key, category, String.valueOf(page), true, filters)).toString(), key);
+                main.post(() -> { if (request == categoryEpoch.get()) listResult.setValue(result); });
+            }
+            catch(Throwable e) { android.util.Log.e("TVboxCore", "category", e); main.post(() -> { if (request == categoryEpoch.get()) listResult.setValue(null); }); }
         });
     }
 

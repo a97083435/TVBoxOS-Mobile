@@ -114,6 +114,20 @@ public class Result implements Parcelable {
     @SerializedName("drm")
     private Drm drm;
 
+    @SerializedName("web")
+    private com.google.gson.JsonElement web;
+    public JsonObject getWeb() { return web != null && web.isJsonObject() ? web.getAsJsonObject() : null; }
+
+    @SerializedName("skips")
+    private com.google.gson.JsonElement skips;
+    public List<SkipSegment> getSkips() {
+        List<SkipSegment> result = new ArrayList<>();
+        if (skips != null && skips.isJsonArray()) for (com.google.gson.JsonElement item : skips.getAsJsonArray()) {
+            SkipSegment segment = SkipSegment.from(item); if (segment != null) result.add(segment);
+        }
+        return result;
+    }
+
     public Result() {
     }
 

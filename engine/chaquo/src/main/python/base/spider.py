@@ -23,6 +23,22 @@ class Spider(metaclass=ABCMeta):
             cls._instance = super().__new__(cls)
             return cls._instance
 
+    def _bind_sdk(self, net, local):
+        from base.sdk import Net, Local
+        self.net = Net(net)
+        self.local = Local(local)
+
+    def getActivity(self):
+        from java import jclass
+        return jclass('com.github.catvod.Runtime').activity()
+
+    @staticmethod
+    def link(name, target):
+        from urllib.parse import quote
+        import html
+        value = json.dumps(target, ensure_ascii=False, separators=(',', ':'))
+        return '<a href="catvod://' + quote(value, safe='') + '">' + html.escape(str(name)) + '</a>'
+
     @abstractmethod
     def init(self, extend=""):
         pass

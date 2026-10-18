@@ -87,6 +87,8 @@
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode"
             android:exported="false"
             android:screenOrientation="landscape" />
+        <activity android:name=".ui.activity.SourceWebActivity" android:exported="false" />
+        <activity android:name=".ui.activity.SourceCategoryActivity" android:exported="false" />
         <activity
             android:name=".ui.activity.MainActivity"
             android:configChanges="orientation|screenSize|keyboardHidden|uiMode|screenLayout"

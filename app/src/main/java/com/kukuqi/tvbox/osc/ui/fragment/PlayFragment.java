@@ -166,6 +166,7 @@ public class PlayFragment extends BaseLazyFragment {
             e.printStackTrace();
         }
         long skip = st * 1000L;
+        if (corePlayResult != null && corePlayResult.hasPosition()) return Math.max(skip, corePlayResult.getPosition());
         Object theCache=CacheManager.getCache(MD5.string2MD5(url));
         if (theCache == null) {
             return skip;
@@ -236,7 +237,7 @@ public class PlayFragment extends BaseLazyFragment {
                 if (rmProgress && preProgressKey != null)
                     CacheManager.delete(MD5.string2MD5(preProgressKey), 0);
             }
-            @Override public void progress(long duration, long position) { preloadNext(duration, position); }
+            @Override public void progress(long duration, long position) { if (!applySourceSkips(duration, position)) preloadNext(duration, position); }
 
             @Override
             public void playPre() {
@@ -791,6 +792,12 @@ public class PlayFragment extends BaseLazyFragment {
                     JSONObject core = info.optJSONObject("coreResult");
                     corePlayResult = com.kukuqi.tvbox.engine.bean.Result.objectFrom(core == null ? info.toString() : core.toString());
                     corePlayResult.setKey(sourceKey);
+                    sourceSkips.reset();
+                    if (corePlayResult.hasMsg()) Toast.makeText(requireContext(), corePlayResult.getMsg(), Toast.LENGTH_LONG).show();
+                    if (mVodInfo != null) {
+                        if (!corePlayResult.getArtwork().isEmpty()) mVodInfo.pic = corePlayResult.getArtwork();
+                        if (!corePlayResult.getDesc().isEmpty()) mVodInfo.des = android.text.Html.fromHtml(corePlayResult.getDesc(), android.text.Html.FROM_HTML_MODE_LEGACY).toString();
+                    }
                     final com.kukuqi.tvbox.engine.bean.Result qualities = corePlayResult;
                     mVideoView.setQualityOptions(qualities, index -> {
                         if (!isAdded() || mVideoView == null || corePlayResult != qualities) return;
@@ -1023,6 +1030,8 @@ public class PlayFragment extends BaseLazyFragment {
     public void play(boolean reset) {
         if (mVodInfo == null) return;
         qualityResumePosition = -1;
+        corePlayResult = null;
+        sourceSkips.reset();
         if (mVideoView != null) mVideoView.setQualityOptions(null, null);
         VodInfo.VodSeries vs = mVodInfo.seriesMap.get(mVodInfo.playFlag).get(mVodInfo.playIndex);
         EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_REFRESH, mVodInfo.playIndex));
@@ -1091,6 +1100,18 @@ public class PlayFragment extends BaseLazyFragment {
         });
     }
 
+    private final com.kukuqi.tvbox.osc.core.SkipPolicy sourceSkips = new com.kukuqi.tvbox.osc.core.SkipPolicy();
+    private boolean applySourceSkips(long duration, long position) {
+        if (corePlayResult == null || mVideoView == null || !mVideoView.isPlaying()) return false;
+        boolean hasNext = mVodInfo != null && mVodInfo.seriesMap.get(mVodInfo.playFlag) != null
+                && mVodInfo.playIndex + 1 < mVodInfo.seriesMap.get(mVodInfo.playFlag).size();
+        long intro = mVodPlayerCfg == null ? 0 : mVodPlayerCfg.optLong("st", 0);
+        long outro = mVodPlayerCfg == null ? 0 : mVodPlayerCfg.optLong("et", 0);
+        var decision = sourceSkips.progress(corePlayResult.getSkips(), position, duration, intro, outro, hasNext);
+        if (decision == null) return false;
+        if (decision.next()) playNext(false); else mVideoView.seekTo(decision.position());
+        return true;
+    }
     private com.kukuqi.tvbox.engine.bean.Result corePlayResult;
     private long qualityResumePosition = -1;
     private boolean qualityResumePlaying;

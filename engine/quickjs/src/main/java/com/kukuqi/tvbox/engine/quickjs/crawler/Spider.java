@@ -126,13 +126,16 @@ public class Spider extends com.github.catvod.crawler.Spider {
 
     @Override
     public void destroy() {
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
         try {
-            call("destroy");
+            long scriptDeadline = deadline - java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(300);
+            var completion = submit(() -> Async.run(jsObject, "destroy")).get(Math.max(1, scriptDeadline - System.nanoTime()), java.util.concurrent.TimeUnit.NANOSECONDS);
+            completion.get(Math.max(1, scriptDeadline - System.nanoTime()), java.util.concurrent.TimeUnit.NANOSECONDS);
         } catch (Throwable e) {
             e.printStackTrace();
         }
         try {
-            releaseJS();
+            releaseJS(deadline);
         } catch (Throwable e) {
             e.printStackTrace();
         } finally {
@@ -140,19 +143,21 @@ public class Spider extends com.github.catvod.crawler.Spider {
         }
     }
 
-    private void releaseJS() throws Exception {
+    private void releaseJS(long deadline) throws Exception {
         submit(() -> {
             if (global != null) global.destroy();
             if (jsObject != null) jsObject.release();
             if (ctx != null) ctx.destroy();
             return null;
-        }).get();
+        }).get(Math.max(1, deadline - System.nanoTime()), java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     private void initializeJS() throws Exception {
         submit(() -> {
             createCtx();
             createFun();
+            global.bind(net, local);
+            ctx.evaluate(RuntimeAssets.read("js/lib/sdk.js"));
             createObj();
             return null;
         }).get();

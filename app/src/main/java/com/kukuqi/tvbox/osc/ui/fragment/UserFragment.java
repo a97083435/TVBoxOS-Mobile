@@ -90,6 +90,8 @@ public class UserFragment extends BaseLazyFragment {
                     return;
                 }
                 Movie.Video vod = ((Movie.Video) adapter.getItem(position));
+                if (com.kukuqi.tvbox.osc.util.SourceActions.run(UserFragment.this, vod, UserFragment.this::refreshContent)) return;
+                if (com.kukuqi.tvbox.osc.util.SourceActions.folder(requireContext(), vod)) return;
                 Bundle bundle = new Bundle();
                 if (!TextUtils.isEmpty(vod.id)) {
                     bundle.putString("id", vod.id);
@@ -125,6 +127,10 @@ public class UserFragment extends BaseLazyFragment {
         if (available) showSuccess(); else showEmpty();
         status(available ? "" : "当前站点没有提供首页推荐，可更换站点；点击重试");
         swipeRefresh.setRefreshing(false);
+    }
+    @Override public void onActivityResult(int request, int result, android.content.Intent data) {
+        super.onActivityResult(request, result, data);
+        if (request == com.kukuqi.tvbox.osc.util.SourceActions.WEB_RESULT) refreshContent();
     }
 
     private void status(String message) {

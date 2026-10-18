@@ -18,6 +18,17 @@ public abstract class Spider {
     public void cancelByTag() { OkHttp.cancel(siteKey); }
 
     public String siteKey;
+    public com.github.catvod.net.Net net;
+    public com.github.catvod.Local local;
+    public final void prepare(String key) {
+        siteKey = key;
+        if (net != null) net.close();
+        net = new com.github.catvod.net.Net(key);
+        local = new com.github.catvod.Local(key);
+    }
+    public final void releaseNetwork() { if (net != null) net.close(); }
+    public android.app.Activity getActivity() { return com.github.catvod.Runtime.activity(); }
+
 
     public static Dns safeDns() {
         return OkHttp.dns();

@@ -56,6 +56,11 @@ def getName(ru):
     return result
 
 
+def bind(ru, net, local):
+    if hasattr(ru, '_bind_sdk'):
+        ru._bind_sdk(net, local)
+
+
 def init(ru, extend):
     ru.init(extend)
 

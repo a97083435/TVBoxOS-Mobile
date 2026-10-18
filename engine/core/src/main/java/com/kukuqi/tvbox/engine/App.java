@@ -98,11 +98,13 @@ public class App extends Application implements Application.ActivityLifecycleCal
     @Override
     public void onActivityResumed(@NonNull Activity activity) {
         if (activity != activity()) this.activity = activity;
+        com.github.catvod.Runtime.resumed(activity);
     }
 
     @Override
     public void onActivityPaused(@NonNull Activity activity) {
         if (activity == activity()) this.activity = null;
+        com.github.catvod.Runtime.paused(activity);
     }
 
     @Override

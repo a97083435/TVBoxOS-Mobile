@@ -111,6 +111,8 @@ class FastSearchActivity : BaseVbActivity<ActivityFastSearchBinding>(), TextWatc
         searchAdapter.setOnItemClickListener { _, view, position ->
             FastClickCheckUtil.check(view)
             val video = searchAdapter.data[position]
+            if (com.kukuqi.tvbox.osc.util.SourceActions.run(this, video) { search(mBinding.etSearch.text.toString()) }) return@setOnItemClickListener
+            if (com.kukuqi.tvbox.osc.util.SourceActions.folder(this, video)) return@setOnItemClickListener
             sourceViewModel.cancelSearch()
             allRunCount.set(0)
             val bundle = Bundle()
@@ -125,6 +127,8 @@ class FastSearchActivity : BaseVbActivity<ActivityFastSearchBinding>(), TextWatc
             FastClickCheckUtil.check(view)
             val video = searchAdapterFilter.data[position]
             if (video != null) {
+                if (com.kukuqi.tvbox.osc.util.SourceActions.run(this, video) { search(mBinding.etSearch.text.toString()) }) return@setOnItemClickListener
+                if (com.kukuqi.tvbox.osc.util.SourceActions.folder(this, video)) return@setOnItemClickListener
                 sourceViewModel.cancelSearch()
                 allRunCount.set(0)
                 val bundle = Bundle()

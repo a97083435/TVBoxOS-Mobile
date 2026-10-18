@@ -16,7 +16,11 @@ from urllib.parse import urljoin, urlparse
 
 
 def module_version(root, name):
-    source = (root / 'runtime' / name / 'build.gradle').read_text(encoding='utf-8')
+    module = root / 'runtime' / name / 'build.gradle'
+    source = module.read_text(encoding='utf-8')
+    # Native modules declare their defaults in the applied shared script.
+    if re.search(r"apply\s+from:\s*rootProject\.file\(['\"]runtime/native\.gradle['\"]\)", source):
+        source = (root / 'runtime/native.gradle').read_text(encoding='utf-8') + '\n' + source
     code = re.search(r"\bversionCode\s+(\d+)\b", source)
     version = re.search(r"\bversionName\s+['\"]([0-9]+\.[0-9]+\.[0-9]+)['\"]", source)
     if not code or not version or int(code[1]) <= 0:

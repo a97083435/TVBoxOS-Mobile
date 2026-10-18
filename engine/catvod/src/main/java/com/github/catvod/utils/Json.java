@@ -15,6 +15,10 @@ import java.util.List;
 import java.util.Map;
 
 public class Json {
+    public static String link(String name, Object target) {
+        String json = target instanceof String ? (String) target : target instanceof org.json.JSONObject ? target.toString() : new com.google.gson.Gson().toJson(target);
+        return "<a href=\"catvod://" + android.net.Uri.encode(json) + "\">" + android.text.TextUtils.htmlEncode(name == null ? "" : name) + "</a>";
+    }
 
     public static JsonElement parse(String json) {
         try {

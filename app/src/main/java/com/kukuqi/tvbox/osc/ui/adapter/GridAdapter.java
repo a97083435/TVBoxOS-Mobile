@@ -24,6 +24,19 @@ import me.jessyan.autosize.utils.AutoSizeUtils;
  * @description:
  */
 public class GridAdapter extends BaseQuickAdapter<Movie.Video, BaseViewHolder> {
+    private String cardStyle;
+    public void setCardStyle(String value) { cardStyle = value; }
+    private com.kukuqi.tvbox.engine.bean.Style appearance(String value) {
+        if (value == null) return null;
+        try {
+            com.google.gson.JsonObject object = com.google.gson.JsonParser.parseString(value).getAsJsonObject();
+            if (object.has("type")) return new com.google.gson.Gson().fromJson(object, com.kukuqi.tvbox.engine.bean.Style.class);
+            int land = object.has("land") ? object.get("land").getAsInt() : 0, circle = object.has("circle") ? object.get("circle").getAsInt() : 0;
+            float ratio = object.has("ratio") ? object.get("ratio").getAsFloat() : 0;
+            var style = com.kukuqi.tvbox.engine.bean.Style.get(land, circle, ratio);
+            return style == null && ratio > 0 ? new com.kukuqi.tvbox.engine.bean.Style("rect", ratio) : style;
+        } catch (RuntimeException ignored) { return null; }
+    }
 
     public GridAdapter() {
         super(R.layout.item_grid, new ArrayList<>());
@@ -35,7 +48,13 @@ public class GridAdapter extends BaseQuickAdapter<Movie.Video, BaseViewHolder> {
 
         int size = Math.max(0, Math.min(3, com.orhanobut.hawk.Hawk.get("poster_size", 2)));
         android.view.ViewGroup.LayoutParams layout = helper.itemView.getLayoutParams();
-        if (layout != null) { layout.height = (int) (new int[]{105, 140, 175, 225}[size] * helper.itemView.getResources().getDisplayMetrics().density); helper.itemView.setLayoutParams(layout); }
+        var style = appearance(item.cardStyle != null ? item.cardStyle : cardStyle);
+        if (layout != null) {
+            layout.height = (int) (new int[]{105, 140, 175, 225}[size] * helper.itemView.getResources().getDisplayMetrics().density);
+            if (style != null && helper.itemView.getParent() instanceof androidx.recyclerview.widget.RecyclerView parent && parent.getLayoutManager() instanceof androidx.recyclerview.widget.GridLayoutManager grid && parent.getWidth() > 0)
+                layout.height = Math.max(1, (int) ((parent.getWidth() - parent.getPaddingLeft() - parent.getPaddingRight()) / grid.getSpanCount() / style.getRatio()));
+            helper.itemView.setLayoutParams(layout);
+        }
         TextView tvYear = helper.getView(R.id.tvYear);
         if (item.year <= 0) {
             tvYear.setVisibility(View.GONE);
@@ -52,6 +71,11 @@ public class GridAdapter extends BaseQuickAdapter<Movie.Video, BaseViewHolder> {
         }
         helper.setText(R.id.tvName, item.name);
         ImageView ivThumb = helper.getView(R.id.ivThumb);
+        boolean oval = style != null && style.isOval();
+        ivThumb.setClipToOutline(oval);
+        ivThumb.setOutlineProvider(oval ? new android.view.ViewOutlineProvider() {
+            @Override public void getOutline(View view, android.graphics.Outline outline) { outline.setOval(0, 0, view.getWidth(), view.getHeight()); }
+        } : android.view.ViewOutlineProvider.BACKGROUND);
         //由于部分电视机使用glide报错
         if (!TextUtils.isEmpty(item.pic)) {
             item.pic=item.pic.trim();

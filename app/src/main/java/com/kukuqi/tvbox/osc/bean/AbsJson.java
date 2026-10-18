@@ -22,7 +22,7 @@ public class AbsJson implements Serializable {
 
     public class AbsJsonVod implements Serializable {
         public int group_id; //: 0
-        public int type_id; //: 32
+        public String type_id;
         public int type_id_1; //: 31
         public String type_name; //: "国产剧"
         public String vod_actor; //: "黄小戈,赵旭东,时男,傅隽,张佳琳"
@@ -88,6 +88,11 @@ public class AbsJson implements Serializable {
         public String vod_state; //: ""
         public String vod_status; //: 1
         public String vod_sub; //: "Mr.Salted Fish Miss Ross 2,咸鱼先生，Rose小姐 第二季,咸鱼先生，Rose小姐之彗星来了"
+        public String action;
+        public com.google.gson.JsonObject cate;
+        public com.google.gson.JsonObject style;
+        public Integer land, circle;
+        public Float ratio;
         public String vod_tag; //: ""
         public String vod_time; //: "2021-04-12 19:13:27"
         public String vod_time_add; //: 1618053726
@@ -107,10 +112,20 @@ public class AbsJson implements Serializable {
 
         public Movie.Video toXmlVideo() {
             Movie.Video video = new Movie.Video();
-            video.tag = vod_tag;
+            video.tag = cate != null ? "folder" : vod_tag;
+            video.action = action;
+            video.cate = cate == null ? null : cate.toString();
+            com.google.gson.JsonObject appearance = style == null ? new com.google.gson.JsonObject() : style.deepCopy();
+            if (!appearance.has("type")) appearance.addProperty("type", circle != null && circle == 1 ? "oval" : "rect");
+            if (!appearance.has("ratio")) {
+                if (ratio != null && ratio > 0) appearance.addProperty("ratio", ratio);
+                else if (land != null && land == 1) appearance.addProperty("ratio", 1.33f);
+                else if (circle != null && circle == 1) appearance.addProperty("ratio", 1f);
+            }
+            if (style != null || land != null || circle != null || ratio != null) video.cardStyle = appearance.toString();
             video.last = vod_time;
             video.id = vod_id;
-            video.tid = type_id;
+            try { video.tid = Integer.parseInt(type_id); } catch (RuntimeException ignored) { video.tid = 0; }
             video.name = vod_name;
             video.type = type_name;
             // video.dt = vod_play_from == null ? "" : vod_play_from.replace("$$$", ",");

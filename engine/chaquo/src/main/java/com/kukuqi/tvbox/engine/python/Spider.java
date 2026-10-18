@@ -32,6 +32,7 @@ public class Spider extends com.github.catvod.crawler.Spider {
         PyObject dependence = app.callAttr("getDependence", obj);
         if (dependence != null) for (PyObject item : dependence.asList()) download(item + ".py");
         obj.put("siteKey", siteKey);
+        app.callAttr("bind", obj, net, local);
         app.callAttr("init", obj, extend);
     }
 

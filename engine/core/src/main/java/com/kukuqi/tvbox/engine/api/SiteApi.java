@@ -237,7 +237,13 @@ public class SiteApi {
         Site site = VodConfig.get().getSite(key);
         SpiderDebug.log("action", "key=%s,action=%s", key, action);
         if (site.getType() == 3) return Result.fromJson(site.recent().spider().action(action));
-        if (site.getType() == 4) return Result.fromJson(OkHttp.string(action));
+        if (site.getType() == 4) {
+            if (HttpUrl.parse(action) == null) throw new IOException("操作接口地址无效");
+            try (Response response = OkHttp.newCall(action, site.getHeader()).execute()) {
+                if (!response.isSuccessful() || response.body() == null) throw new IOException("操作接口请求失败：HTTP " + response.code());
+                return Result.fromJson(response.body().string());
+            }
+        }
         return Result.empty();
     }
 

@@ -38,6 +38,11 @@ public class Global {
     private final Timer timer;
 
     private volatile boolean destroyed;
+    private Network network;
+    public void bind(com.github.catvod.net.Net net, com.github.catvod.Local local) {
+        network = new Network(ctx, executor, net, local);
+    }
+
 
     private Global(QuickJSContext ctx, ExecutorService executor) {
         this.executor = executor;
@@ -54,6 +59,7 @@ public class Global {
 
     public void destroy() {
         destroyed = true;
+        if (network != null) network.close();
         for (Timeout timeout : timers.values()) timeout.cancelAndRelease();
         timers.clear();
         timer.cancel();

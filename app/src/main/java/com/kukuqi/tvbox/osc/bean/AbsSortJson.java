@@ -22,6 +22,11 @@ public class AbsSortJson implements Serializable {
             sortData.id = cls.type_id;
             sortData.name = cls.type_name;
             sortData.flag = cls.type_flag;
+            com.google.gson.JsonObject appearance = new com.google.gson.JsonObject();
+            if (cls.land != null) appearance.addProperty("land", cls.land);
+            if (cls.circle != null) appearance.addProperty("circle", cls.circle);
+            if (cls.ratio != null) appearance.addProperty("ratio", cls.ratio);
+            sortData.cardStyle = appearance.size() == 0 ? null : appearance.toString();
             movieSort.sortList.add(sortData);
         }
         if (list != null && !list.isEmpty()) {
@@ -43,6 +48,8 @@ public class AbsSortJson implements Serializable {
         public String type_id;
         public String type_name;
         public String type_flag;
+        public Integer land, circle;
+        public Float ratio;
     }
 
 }

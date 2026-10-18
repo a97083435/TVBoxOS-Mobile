@@ -55,6 +55,21 @@ class RuntimeCatalogTest(unittest.TestCase):
             self.assertEqual(hashlib.sha256(data).hexdigest(), artifact['sha256'])
             self.assertEqual(len(data), artifact['size'])
 
+    def test_shared_native_declarations_are_used_for_real_catalog(self):
+        (self.root / 'runtime/native.gradle').write_text("versionCode 2\nversionName '1.0.1'\n")
+        for name in ('nodejs', 'bdj'):
+            (self.root / f'runtime/{name}/build.gradle').write_text("apply from: rootProject.file('runtime/native.gradle')\n")
+        self.run_catalog()
+        result = json.loads((self.out / 'catalog.json').read_text())
+        self.assertEqual({'python', 'quickjs', 'thunder', 'nodejs', 'bdj'}, {m['id'] for m in result['modules']})
+
+    def test_all_checkout_module_versions_can_be_resolved(self):
+        checkout = Path(__file__).resolve().parents[1]
+        for name in ('python', 'quickjs', 'thunder', 'nodejs', 'bdj'):
+            code, version = catalog.module_version(checkout, name)
+            self.assertGreater(code, 0)
+            self.assertRegex(version, r'^\d+\.\d+\.\d+$')
+
     def test_stale_module_version_cannot_be_published(self):
         def stale(command, **kwargs):
             result = self.output(command, **kwargs)

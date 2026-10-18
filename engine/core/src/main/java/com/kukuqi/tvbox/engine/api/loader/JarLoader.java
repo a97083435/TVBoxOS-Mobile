@@ -39,7 +39,7 @@ public class JarLoader {
     }
 
     public void clear() {
-        spiders.values().forEach(Spider::destroy);
+        spiders.values().forEach(spider -> { try { spider.destroy(); } catch (Throwable error) { error.printStackTrace(); } finally { spider.releaseNetwork(); } });
         loaders.clear();
         methods.clear();
         spiders.clear();
@@ -122,11 +122,11 @@ public class JarLoader {
                 DexClassLoader loader = loaders.get(jaKey);
                 if (loader == null) throw new IllegalStateException("JAR 来源未加载");
                 spider = (Spider) loader.loadClass("com.github.catvod.spider." + api.split("csp_")[1]).newInstance();
-                spider.siteKey = key;
+                spider.prepare(key);
                 spider.init(App.get(), ext);
                 return spider;
             } catch (Throwable e) {
-                if (spider != null) try { spider.destroy(); } catch (Throwable ignored) {}
+                if (spider != null) try { spider.destroy(); } catch (Throwable ignored) {} finally { spider.releaseNetwork(); }
                 e.printStackTrace();
                 throw new IllegalStateException("JAR 来源初始化失败，可重试", e);
             }

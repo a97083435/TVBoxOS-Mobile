@@ -55,9 +55,9 @@ public class VideoDetailDialog extends BottomPopupView {
         binding.tvName.setText(mVideo.name);
         binding.tvYear.setText("年份："+(mVideo.year == 0 ? "" : String.valueOf(mVideo.year)));
         binding.tvArea.setText("地区："+getText(mVideo.area));
-        binding.tvType.setText("类型："+getText(mVideo.type));
-        binding.tvActor.setText("演员："+getText(mVideo.actor));
-        binding.tvDirector.setText("导演："+getText(mVideo.director));
+        com.kukuqi.tvbox.osc.util.SourceLinks.bind(binding.tvType, "类型：", getText(mVideo.type), mVideo.sourceKey);
+        com.kukuqi.tvbox.osc.util.SourceLinks.bind(binding.tvActor, "演员：", getText(mVideo.actor), mVideo.sourceKey);
+        com.kukuqi.tvbox.osc.util.SourceLinks.bind(binding.tvDirector, "导演：", getText(mVideo.director), mVideo.sourceKey);
         binding.tvDes.setContent("简介："+removeHtmlTag(mVideo.des));
         binding.url.setText(mActivity.getCurrentVodUrl());
         binding.tvLinkCopy.setOnClickListener(view -> {

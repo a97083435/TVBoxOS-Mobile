@@ -60,7 +60,7 @@ public class GridFragment extends BaseLazyFragment {
     private androidx.swiperefreshlayout.widget.SwipeRefreshLayout swipeRefresh;
     private View focusedView = null;
     private class GridInfo{
-        public String sortID="";
+        public MovieSort.SortData sort;
         public RecyclerView mGridView;
         public GridAdapter gridAdapter;
         public int page = 1;
@@ -106,13 +106,20 @@ public class GridFragment extends BaseLazyFragment {
         outState.putString("sortDataJson", GsonUtils.toJson(sortData));
     }
 
-    private void changeView(String id, Boolean isFolder){
+    private void changeView(Movie.Video video, Boolean isFolder){
+        String id = video.id;
+        MovieSort.SortData child = new MovieSort.SortData(id, video.name);
+        child.sourceKey = sortData.sourceKey;
+        child.cardStyle = video.cate;
+        initView();
+        this.sortData = child;
+        gridFilterDialog = null;
+        gridAdapter.setCardStyle(sortData.cardStyle);
         if(isFolder){
             this.sortData.flag ="1"; // 修改sortData.flag
         }else {
             this.sortData.flag =null; // 修改sortData.flag
         }
-        initView();
         this.sortData.id =id; // 修改sortData.id为新的ID
         initViewModel();
         initData();
@@ -128,7 +135,7 @@ public class GridFragment extends BaseLazyFragment {
     private void saveCurrentView(){
         if(this.mGridView == null) return;
         GridInfo info = new GridInfo();
-        info.sortID = this.sortData.id;
+        info.sort = this.sortData;
         info.mGridView = this.mGridView;
         info.gridAdapter = this.gridAdapter;
         info.page = this.page;
@@ -140,10 +147,12 @@ public class GridFragment extends BaseLazyFragment {
     // 丢弃当前页面，将页面还原成上一个保存的页面
     public boolean restoreView(){
         if(mGrids.empty()) return false;
+        sourceViewModel.invalidateList();
         this.showSuccess();
         ((ViewGroup) mGridView.getParent()).removeView(this.mGridView); // 重父窗口移除当前控件
         GridInfo info = mGrids.pop();// 还原上次保存的控件
-        this.sortData.id = info.sortID;
+        this.sortData = info.sort;
+        gridFilterDialog = null;
         this.mGridView = info.mGridView;
         this.gridAdapter = info.gridAdapter;
         this.page = info.page;
@@ -173,6 +182,7 @@ public class GridFragment extends BaseLazyFragment {
         }
         mGridView.setHasFixedSize(true);
         gridAdapter = new GridAdapter();
+        gridAdapter.setCardStyle(sortData.cardStyle);
         this.page =1;
         this.maxPage =1;
         this.isLoad = false;
@@ -203,16 +213,17 @@ public class GridFragment extends BaseLazyFragment {
                 FastClickCheckUtil.check(view);
                 Movie.Video video = gridAdapter.getData().get(position);
                 if (video != null) {
+                    if (com.kukuqi.tvbox.osc.util.SourceActions.run(GridFragment.this, video, () -> { page = 1; initData(); })) return;
                     Bundle bundle = new Bundle();
                     bundle.putString("id", video.id);
                     bundle.putString("sourceKey", video.sourceKey);
                     bundle.putString("title", video.name);
-                    SourceBean homeSourceBean = ApiConfig.get().getHomeSourceBean();
-                    if(("12".indexOf(getUITag()) != -1) && (video.tag.equals("folder") || video.tag.equals("cover"))){
+                    SourceBean homeSourceBean = ApiConfig.get().getSource(video.sourceKey);
+                    if("folder".equals(video.tag) || (("12".indexOf(getUITag()) != -1) && "cover".equals(video.tag))){
                         focusedView = view;
-                        changeView(video.id,video.tag.equals("folder"));
+                        changeView(video,"folder".equals(video.tag));
                     }
-                    else if(homeSourceBean.isQuickSearch() && Hawk.get(HawkConfig.FAST_SEARCH_MODE, false) && enableFastSearch()){
+                    else if(homeSourceBean != null && homeSourceBean.isQuickSearch() && Hawk.get(HawkConfig.FAST_SEARCH_MODE, false) && enableFastSearch()){
                         jumpActivity(FastSearchActivity.class, bundle);
                     }else{
                         if(TextUtils.isEmpty(video.id) || video.id.startsWith("msearch:")){
@@ -252,6 +263,11 @@ public class GridFragment extends BaseLazyFragment {
         if (mGridView != null) {
             mGridView.setLayoutManager(new V7GridLayoutManager(this.mContext, Utils.getPosterSpanCount(this.mContext)));
         }
+    }
+
+    @Override public void onActivityResult(int request, int result, @Nullable android.content.Intent data) {
+        super.onActivityResult(request, result, data);
+        if (request == com.kukuqi.tvbox.osc.util.SourceActions.WEB_RESULT) { page = 1; initData(); }
     }
 
     private void initViewModel() {
@@ -299,7 +315,8 @@ public class GridFragment extends BaseLazyFragment {
     }
 
     private void initData() {
-        if (ApiConfig.get().getHomeSourceBean().getApi()==null){// 系统杀死app恢复缓存的fragment后会直接getList,此时首页api都未加载完
+        SourceBean source = TextUtils.isEmpty(sortData.sourceKey) ? ApiConfig.get().getHomeSourceBean() : ApiConfig.get().getSource(sortData.sourceKey);
+        if (source == null || source.getApi()==null){// 系统杀死app恢复缓存的fragment后会直接getList,此时首页api都未加载完
             swipeRefresh.setRefreshing(false);
             showEmpty();
             return;

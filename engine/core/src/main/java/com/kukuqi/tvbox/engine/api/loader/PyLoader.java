@@ -20,7 +20,7 @@ public class PyLoader {
     }
 
     public void clear() {
-        spiders.values().forEach(Spider::destroy);
+        spiders.values().forEach(spider -> { try { spider.destroy(); } catch (Throwable error) { error.printStackTrace(); } finally { spider.releaseNetwork(); } });
         spiders.clear();
         recent = null;
     }
@@ -36,11 +36,11 @@ public class PyLoader {
             Spider spider = null;
             try {
                 spider = (Spider) RuntimeModules.call(loader, "spider", new Class<?>[]{String.class}, api);
-                spider.siteKey = key;
+                spider.prepare(key);
                 spider.init(App.get(), ext);
                 return spider;
             } catch (Throwable e) {
-                if (spider != null) try { spider.destroy(); } catch (Throwable ignored) {}
+                if (spider != null) try { spider.destroy(); } catch (Throwable ignored) {} finally { spider.releaseNetwork(); }
                 e.printStackTrace();
                 throw new IllegalStateException("Python 来源初始化失败，可重试", e);
             }
