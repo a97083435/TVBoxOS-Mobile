@@ -211,6 +211,7 @@ public class SourceViewModel extends ViewModel {
         filter.key = key;
         filter.name = name;
         filter.values = values;
+        filter.init = obj.has("init") && !obj.get("init").isJsonNull() ? obj.get("init").getAsString() : null;
         return filter;
     }
 
@@ -244,6 +245,16 @@ public class SourceViewModel extends ViewModel {
                 }
             } catch (Throwable th) {
 
+            }
+            // Class-local filters are valid too; top-level filters take precedence.
+            JsonArray classes = obj.getAsJsonArray("class");
+            for (MovieSort.SortData sort : data.classes.sortList) {
+                if (sort.filters.isEmpty() && classes != null) for (JsonElement item : classes) {
+                    JsonObject category = item.getAsJsonObject();
+                    if (!category.has("type_id") || !sort.id.equals(category.get("type_id").getAsString()) || !category.has("filters") || !category.get("filters").isJsonArray()) continue;
+                    for (JsonElement filter : category.getAsJsonArray("filters")) sort.filters.add(getSortFilter(filter.getAsJsonObject()));
+                }
+                sort.resetFilters();
             }
             return data;
         } catch (Exception e) {

@@ -37,7 +37,7 @@ public class GridFilterDialog extends BaseDialog {
         setContentView(R.layout.dialog_grid_filter);
         filterRoot = findViewById(R.id.filterRoot);
         findViewById(R.id.btn_reset).setOnClickListener(view -> {
-            mSortData.filterSelect = new HashMap<>();
+            mSortData.resetFilters();
             selectChange = true;
             setData(mSortData);
         });

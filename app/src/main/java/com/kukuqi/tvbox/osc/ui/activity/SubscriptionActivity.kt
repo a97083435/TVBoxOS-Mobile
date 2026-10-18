@@ -229,92 +229,57 @@ class SubscriptionActivity : BaseVbActivity<ActivitySubscriptionBinding>() {
         return uri.lastPathSegment ?: "本地订阅"
     }
 
-    private fun addSubscription(name: String, url: String, checked: Boolean) {
-        if (url.startsWith("clan://") || url.startsWith("content://")) {
-            addSub2List(name, url, checked)
-            mSubscriptionAdapter.setNewData(mSubscriptions)
-        } else if (url.startsWith("http")) {
-            showLoadingDialog()
-            OkGo.get<String>(url)
-                .tag("get_subscription")
-                .execute(object : AbsCallback<String?>() {
-                    override fun onSuccess(response: Response<String?>) {
-                        dismissLoadingDialog()
-                        try {
-                            val json = JsonParser.parseString(response.body()).asJsonObject
-                            com.kukuqi.tvbox.osc.util.SourceManager.record(url, json.toString())
-                            // 多线路?
-                            val urls = json["urls"]
-                            // 多仓?
-                            val storeHouse = json["storeHouse"]
-                            if (urls != null && urls.isJsonArray) { // 多线路
-                                if (checked) {
-                                    ToastUtils.showLong("多条线路请主动选择")
-                                }
-                                val urlList = urls.asJsonArray
-                                if (urlList != null && urlList.size() > 0 && urlList[0].isJsonObject
-                                    && urlList[0].asJsonObject.has("url")
-                                    && urlList[0].asJsonObject.has("name")
-                                ) { //多线路格式
-                                    for (i in 0 until urlList.size()) {
-                                        val obj = urlList[i] as JsonObject
-                                        val name = obj["name"].asString.trim { it <= ' ' }
-                                            .replace("<|>|《|》|-".toRegex(), "")
-                                        val url = obj["url"].asString.trim { it <= ' ' }
-                                        addSub2List(name, url, false)
-                                    }
-                                }
-                            } else if (storeHouse != null && storeHouse.isJsonArray) { // 多仓
-                                val storeHouseList = storeHouse.asJsonArray
-                                if (storeHouseList != null && storeHouseList.size() > 0 && storeHouseList[0].isJsonObject
-                                    && storeHouseList[0].asJsonObject.has("sourceName")
-                                    && storeHouseList[0].asJsonObject.has("sourceUrl")
-                                ) { //多仓格式
-                                    mSources.clear()
-                                    for (i in 0 until storeHouseList.size()) {
-                                        val obj = storeHouseList[i] as JsonObject
-                                        val name = obj["sourceName"].asString.trim { it <= ' ' }
-                                            .replace("<|>|《|》|-".toRegex(), "")
-                                        val url = obj["sourceUrl"].asString.trim { it <= ' ' }
-                                        mSources.add(Source(name, url))
-                                    }
-                                    XPopup.Builder(this@SubscriptionActivity)
-                                        .asCustom(
-                                            ChooseSourceDialog(
-                                                this@SubscriptionActivity,
-                                                mSources
-                                            ) { position: Int, _: String? ->
-                                                // 再根据多线路格式获取配置,如果仓内是正常多线路模式,name没用,直接使用线路的命名
-                                                addSubscription(
-                                                    mSources[position].sourceName,
-                                                    mSources[position].sourceUrl,
-                                                    checked
-                                                )
-                                            })
-                                        .show()
-                                }
-                            } else { // 单线路/其余
-                                addSub2List(name, url, checked)
-                            }
-                        } catch (th: Throwable) {
-                            addSub2List(name, url, checked)
-                        }
-                        mSubscriptionAdapter.setNewData(mSubscriptions)
+    private fun addSubscription(name: String, url: String, checked: Boolean, depth: Int = 0) {
+        if (depth > 8) {
+            ToastUtils.showLong("订阅仓库嵌套过深，请检查循环引用")
+            return
+        }
+        showLoadingDialog()
+        com.kukuqi.tvbox.osc.util.SourceManager.readDocument(url) { content, error ->
+            if (isFinishing || isDestroyed) return@readDocument
+            dismissLoadingDialog()
+            if (content == null) {
+                ToastUtils.showLong(error)
+                return@readDocument
+            }
+            try {
+                val json = JsonParser.parseString(content).asJsonObject
+                if (json.has("msg")) {
+                    ToastUtils.showLong(json["msg"].asString)
+                    return@readDocument
+                }
+                com.kukuqi.tvbox.osc.util.SourceManager.record(url, content)
+                val urls = com.kukuqi.tvbox.osc.util.ConfigCompat.array(json, "urls")
+                val stores = com.kukuqi.tvbox.osc.util.ConfigCompat.array(json, "storeHouse")
+                if (urls.size() > 0) {
+                    var added = 0
+                    for (entry in urls) {
+                        if (!entry.isJsonObject) continue
+                        val item = entry.asJsonObject
+                        val address = com.kukuqi.tvbox.osc.util.SourceDescriptor.string(item, "url")
+                        val label = com.kukuqi.tvbox.osc.util.SourceDescriptor.string(item, "name").ifEmpty { name }
+                        if (addSub2List(label, address, false)) added++
                     }
-
-                    @Throws(Throwable::class)
-                    override fun convertResponse(response: okhttp3.Response): String {
-                        return response.body!!.string()
+                    ToastUtils.showLong("已添加 $added 条线路，请选择要使用的订阅")
+                } else if (stores.size() > 0) {
+                    val sources = stores.filter { it.isJsonObject }.mapNotNull {
+                        val item = it.asJsonObject
+                        val address = com.kukuqi.tvbox.osc.util.SourceDescriptor.string(item, "sourceUrl")
+                        if (address.isEmpty()) null else Source(
+                            com.kukuqi.tvbox.osc.util.SourceDescriptor.string(item, "sourceName").ifEmpty { "订阅仓库" }, address)
                     }
-
-                    override fun onError(response: Response<String?>) {
-                        super.onError(response)
-                        dismissLoadingDialog()
-                        ToastUtils.showLong("订阅失败,请检查地址或网络状态")
-                    }
-                })
-        } else {
-            ToastUtils.showShort("订阅格式不正确")
+                    if (sources.isEmpty()) throw IllegalArgumentException("订阅仓库没有有效地址")
+                    XPopup.Builder(this).asCustom(ChooseSourceDialog(this, sources) { position, _ ->
+                        val selected = sources[position]
+                        addSubscription(selected.sourceName, selected.sourceUrl, checked, depth + 1)
+                    }).show()
+                } else if (com.kukuqi.tvbox.osc.util.ConfigCompat.array(json, "sites").size() > 0) {
+                    addSub2List(name, url, checked)
+                } else throw IllegalArgumentException("订阅没有提供视频站点或仓库地址")
+                mSubscriptionAdapter.setNewData(mSubscriptions)
+            } catch (failure: Exception) {
+                ToastUtils.showLong(failure.message ?: "订阅格式不正确")
+            }
         }
     }
 

@@ -27,6 +27,20 @@ class Spider(metaclass=ABCMeta):
     def init(self, extend=""):
         pass
 
+    @staticmethod
+    def page(items, pg=1, size=20):
+        items = items if isinstance(items, list) else []
+        try:
+            pg = max(1, int(pg))
+        except (TypeError, ValueError):
+            pg = 1
+        try:
+            size = max(1, int(size))
+        except (TypeError, ValueError):
+            size = 20
+        return {'page': pg, 'pagecount': (len(items) + size - 1) // size,
+                'limit': size, 'total': len(items), 'list': items[(pg - 1) * size:pg * size]}
+
     def homeContent(self, filter):
         pass
 

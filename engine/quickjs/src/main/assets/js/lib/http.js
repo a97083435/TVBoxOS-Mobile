@@ -30,3 +30,12 @@ function defineGlobalAlias(name) {
 }
 
 ['global', 'window', 'self'].forEach(defineGlobalAlias);
+
+// Available before source modules and factories are evaluated.
+globalThis.page = function (items, pg, size = 20) {
+    const list = Array.isArray(items) ? items : [];
+    const current = Math.max(1, Math.trunc(Number(pg)) || 1);
+    const limit = Math.max(1, Math.trunc(Number(size)) || 20);
+    return {page: current, pagecount: Math.ceil(list.length / limit), limit, total: list.length,
+        list: list.slice((current - 1) * limit, current * limit)};
+};

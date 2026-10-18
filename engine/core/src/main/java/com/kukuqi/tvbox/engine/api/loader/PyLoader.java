@@ -33,14 +33,16 @@ public class PyLoader {
         RuntimeModules.loader(App.get(), RuntimeModule.PYTHON);
         if (loader == null) loader = RuntimeModules.create(App.get(), RuntimeModule.PYTHON);
         return spiders.computeIfAbsent(key, k -> {
+            Spider spider = null;
             try {
-                Spider spider = (Spider) RuntimeModules.call(loader, "spider", new Class<?>[]{String.class}, api);
+                spider = (Spider) RuntimeModules.call(loader, "spider", new Class<?>[]{String.class}, api);
                 spider.siteKey = key;
                 spider.init(App.get(), ext);
                 return spider;
             } catch (Throwable e) {
+                if (spider != null) try { spider.destroy(); } catch (Throwable ignored) {}
                 e.printStackTrace();
-                return new SpiderNull();
+                throw new IllegalStateException("Python 来源初始化失败，可重试", e);
             }
         });
     }

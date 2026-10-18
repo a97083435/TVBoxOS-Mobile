@@ -23,6 +23,8 @@ class RuntimeCatalogTest(unittest.TestCase):
             apk = self.root / f'runtime/{name}/build/outputs/apk/release/runtime-{name}-release.apk'
             apk.parent.mkdir(parents=True)
             apk.write_bytes(('signed-' + name).encode())
+            code, version = (3, '1.0.2') if name in ('python', 'quickjs') else (2, '1.0.1')
+            (self.root / f'runtime/{name}/build.gradle').write_text(f"versionCode {code}\nversionName '{version}'\n")
         self.out = self.root / 'dist'
         self.args = ['runtime_catalog.py', '--variant', 'release', '--base-url', 'https://example.org/releases/download/v3.0.5/',
                      '--output', str(self.out), '--host-apk', str(self.host), '--aapt', 'aapt', '--apksigner', 'apksigner']
@@ -31,7 +33,8 @@ class RuntimeCatalogTest(unittest.TestCase):
         if command[0] == 'apksigner':
             return 'Signer #1 certificate SHA-256 digest: ' + 'a' * 64
         name = Path(command[-1]).parents[4].name
-        return f"package: name='com.kukuqi.tvbox.runtime.{name}' versionCode='2' versionName='1.0.1'\n"
+        code, version = (3, '1.0.2') if name in ('python', 'quickjs') else (2, '1.0.1')
+        return f"package: name='com.kukuqi.tvbox.runtime.{name}' versionCode='{code}' versionName='{version}'\n"
 
     def run_catalog(self, output=None):
         with patch.object(catalog, '__file__', str(self.root / 'scripts/runtime_catalog.py')), patch.object(sys, 'argv', self.args), \
@@ -43,11 +46,22 @@ class RuntimeCatalogTest(unittest.TestCase):
         result = json.loads((self.out / 'catalog.json').read_text())
         self.assertEqual(5, len(result['modules']))
         for module in result['modules']:
+            code, version = (3, '1.0.2') if module['id'] in ('python', 'quickjs') else (2, '1.0.1')
+            self.assertEqual(code, module['versionCode'])
+            self.assertEqual(version, module['versionName'])
             artifact = module['artifacts'][0]
             data = (self.out / artifact['url'].rsplit('/', 1)[-1]).read_bytes()
             self.assertIn('/v3.0.5/', artifact['url'])
             self.assertEqual(hashlib.sha256(data).hexdigest(), artifact['sha256'])
             self.assertEqual(len(data), artifact['size'])
+
+    def test_stale_module_version_cannot_be_published(self):
+        def stale(command, **kwargs):
+            result = self.output(command, **kwargs)
+            return result.replace("versionCode='3' versionName='1.0.2'", "versionCode='2' versionName='1.0.1'")
+        with self.assertRaises(SystemExit):
+            self.run_catalog(stale)
+        self.assertFalse((self.out / 'catalog.json').exists())
 
     def test_foreign_module_certificate_blocks_catalog(self):
         def foreign(command, **kwargs):

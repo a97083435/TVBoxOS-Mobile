@@ -116,17 +116,19 @@ public class JarLoader {
         String jaKey = Crypto.md5(jar);
         String spKey = jaKey + key;
         return spiders.computeIfAbsent(spKey, k -> {
+            Spider spider = null;
             try {
                 parseJar(jaKey, jar);
                 DexClassLoader loader = loaders.get(jaKey);
-                if (loader == null) return new SpiderNull();
-                Spider spider = (Spider) loader.loadClass("com.github.catvod.spider." + api.split("csp_")[1]).newInstance();
+                if (loader == null) throw new IllegalStateException("JAR 来源未加载");
+                spider = (Spider) loader.loadClass("com.github.catvod.spider." + api.split("csp_")[1]).newInstance();
                 spider.siteKey = key;
                 spider.init(App.get(), ext);
                 return spider;
             } catch (Throwable e) {
+                if (spider != null) try { spider.destroy(); } catch (Throwable ignored) {}
                 e.printStackTrace();
-                return new SpiderNull();
+                throw new IllegalStateException("JAR 来源初始化失败，可重试", e);
             }
         });
     }

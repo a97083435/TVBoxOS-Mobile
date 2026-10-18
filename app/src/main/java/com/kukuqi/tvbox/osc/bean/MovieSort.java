@@ -42,6 +42,12 @@ public class MovieSort implements Serializable {
             this.name = name;
         }
 
+        public void resetFilters() {
+            filterSelect = new HashMap<>();
+            if (filters != null) for (SortFilter filter : filters)
+                if (filter != null && filter.key != null && filter.init != null) filterSelect.put(filter.key, filter.init);
+        }
+
         public int filterSelectCount() {
             if (filterSelect == null) {
                 return 0;
@@ -78,6 +84,7 @@ public class MovieSort implements Serializable {
         public String key;
         public String name;
         public LinkedHashMap<String, String> values;
+        public String init;
 
         @Override
         public String toString() {

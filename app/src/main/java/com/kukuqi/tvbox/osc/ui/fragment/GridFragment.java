@@ -273,7 +273,7 @@ public class GridFragment extends BaseLazyFragment {
                     page++;
                     maxPage = absXml.movie.pagecount;
 
-                    if (page > maxPage) {
+                    if (maxPage > 0 && page > maxPage) {
                         gridAdapter.loadMoreEnd();
                         gridAdapter.setEnableLoadMore(false);
                         if(page>2)Toast.makeText(getContext(), "没有更多了", Toast.LENGTH_SHORT).show();

@@ -55,6 +55,20 @@ public final class SourceManager {
             } catch (Exception e) { result.onResult(null, "这个地址没有返回有效的订阅配置"); }
         });
     }
+    /** Read one decoded document for subscription selection; do not follow the first depot entry. */
+    public static void readDocument(String url, ContentResult result) {
+        IO.execute(() -> {
+            String content = null, error = "这个地址没有返回有效的订阅配置";
+            try {
+                ConfigCompat.Resource resource = configResource(url);
+                com.google.gson.JsonElement document = com.google.gson.JsonParser.parseString(resource.content);
+                ConfigCompat.normalize(document, resource.url);
+                content = document.toString();
+            } catch (Exception failure) { if (failure.getMessage() != null) error = failure.getMessage(); }
+            String ready = content, message = error;
+            MAIN.post(() -> result.onResult(ready, ready == null ? message : ""));
+        });
+    }
     public static void readConfig(String url, ContentResult result) {
         IO.execute(() -> {
             String content = null, error = "这个地址没有返回有效的订阅配置";

@@ -34,14 +34,17 @@ public class JsLoader {
         RuntimeModules.loader(App.get(), RuntimeModule.QUICKJS);
         if (loader == null) loader = RuntimeModules.create(App.get(), RuntimeModule.QUICKJS);
         return spiders.computeIfAbsent(key, k -> {
+            Spider spider = null;
             try {
-                Spider spider = (Spider) RuntimeModules.call(loader, "spider", new Class<?>[]{String.class, dalvik.system.DexClassLoader.class}, api, BaseLoader.get().dex(jar));
+                spider = (Spider) RuntimeModules.call(loader, "spider", new Class<?>[]{String.class, dalvik.system.DexClassLoader.class}, api, BaseLoader.get().dex(jar));
                 spider.siteKey = key;
                 spider.init(App.get(), ext);
                 return spider;
             } catch (Throwable e) {
+                if (spider != null) try { spider.destroy(); } catch (Throwable ignored) {}
+                try { RuntimeModules.call(loader, "clear", new Class<?>[0]); } catch (Exception ignored) {}
                 e.printStackTrace();
-                return new SpiderNull();
+                throw new IllegalStateException("JavaScript 来源初始化失败，可重试", e);
             }
         });
     }

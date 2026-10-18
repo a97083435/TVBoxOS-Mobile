@@ -82,31 +82,20 @@ public final class ConfigCompat {
         return key;
     }
 
-    /** Resolve only leading relative paths; never rewrite ./ within JS query parameters or regexes. */
+    /** Shared structural path handling keeps decoded and plain configurations consistent. */
     public static void normalize(JsonElement element, String base) {
-        if (element.isJsonArray()) { for (JsonElement item : element.getAsJsonArray()) normalize(item, base); return; }
+        com.kukuqi.tvbox.engine.utils.ConfigPaths.normalize(element, base);
+        normalizeHeaders(element);
+    }
+    private static void normalizeHeaders(JsonElement element) {
+        if (element.isJsonArray()) { for (JsonElement item : element.getAsJsonArray()) normalizeHeaders(item); return; }
         if (!element.isJsonObject()) return;
-        JsonObject object = element.getAsJsonObject();
-        for (Map.Entry<String, JsonElement> entry : object.entrySet()) {
-            String key = entry.getKey(); JsonElement value = entry.getValue();
-            if ((key.equals("urls") || key.equals("wallpaper")) && value.isJsonArray()) {
-                JsonArray paths = value.getAsJsonArray();
-                for (int i = 0; i < paths.size(); i++) if (paths.get(i).isJsonPrimitive()) {
-                    String path = paths.get(i).getAsString();
-                    if (path.startsWith("./") || path.startsWith("../") || path.startsWith("/")) paths.set(i, new com.google.gson.JsonPrimitive(SourceDescriptor.resolve(base, path)));
-                }
-            }
-            if (value.isJsonObject() || value.isJsonArray()) { normalize(value, base); continue; }
-            if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()) continue;
-            if (key.equals("spider") || key.equals("jar") || key.equals("api") || key.equals("ext") || key.equals("url")
-                    || key.equals("playUrl") || key.equals("wallpaper") || key.equals("epg") || key.equals("logo")) {
-                String path = value.getAsString().trim();
-                if (path.startsWith("./") || path.startsWith("../") || path.startsWith("/"))
-                    entry.setValue(new com.google.gson.JsonPrimitive(SourceDescriptor.resolve(base, path)));
-            }
-            if (key.equals("header") && value.getAsJsonPrimitive().isString()) {
+        for (Map.Entry<String, JsonElement> entry : element.getAsJsonObject().entrySet()) {
+            if (entry.getKey().equals("ext")) continue;
+            JsonElement value = entry.getValue();
+            if (entry.getKey().equals("header") && value.isJsonPrimitive() && value.getAsJsonPrimitive().isString()) {
                 JsonObject header = new JsonObject(); headers(value).forEach(header::addProperty); entry.setValue(header);
-            }
+            } else normalizeHeaders(value);
         }
     }
 }

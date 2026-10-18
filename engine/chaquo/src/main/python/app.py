@@ -2,14 +2,25 @@ import os
 import requests
 from importlib.machinery import SourceFileLoader
 import json
+import hashlib
+import itertools
+import sys
+
+_instances = itertools.count()
 
 
 def spider(cache, api):
-    name = os.path.basename(api)
-    path = cache + '/' + name
+    # Different sites often publish the same spider.py filename. A unique module
+    # namespace prevents the second import from replacing the first site's globals.
+    identity = 'source_' + hashlib.sha256(api.encode('utf-8')).hexdigest()
+    name = identity + '_' + str(next(_instances))
+    path = os.path.join(cache, identity + '.py')
     download(path, api)
-    name = name.split('.')[0]
-    return SourceFileLoader(name, path).load_module().Spider()
+    try:
+        return SourceFileLoader(name, path).load_module().Spider()
+    except Exception:
+        sys.modules.pop(name, None)
+        raise
 
 
 def download(path, api):
@@ -25,11 +36,10 @@ def writeFile(path, content):
 
 
 def redirect(url):
-    rsp = requests.get(url, allow_redirects=False, verify=False)
-    if 'Location' in rsp.headers:
-        return redirect(rsp.headers['Location'])
-    else:
-        return rsp
+    # requests resolves relative Location headers and bounds redirect loops.
+    rsp = requests.get(url, allow_redirects=True, verify=False, timeout=(10, 30))
+    rsp.raise_for_status()
+    return rsp
 
 
 def str2json(content):
@@ -103,7 +113,12 @@ def action(ru, action):
 
 
 def destroy(ru):
-    ru.destroy()
+    try:
+        ru.destroy()
+    finally:
+        name = type(ru).__module__
+        if name.startswith('source_'):
+            sys.modules.pop(name, None)
 
 
 def run():

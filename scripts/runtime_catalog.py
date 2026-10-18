@@ -15,6 +15,15 @@ import subprocess
 from urllib.parse import urljoin, urlparse
 
 
+def module_version(root, name):
+    source = (root / 'runtime' / name / 'build.gradle').read_text(encoding='utf-8')
+    code = re.search(r"\bversionCode\s+(\d+)\b", source)
+    version = re.search(r"\bversionName\s+['\"]([0-9]+\.[0-9]+\.[0-9]+)['\"]", source)
+    if not code or not version or int(code[1]) <= 0:
+        raise ValueError(f'Invalid declared module version: {name}')
+    return int(code[1]), version[1]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--variant', choices=['debug', 'release'], default='release')
@@ -41,6 +50,7 @@ def main():
     host_certificate = certificate(args.host_apk) if args.apksigner and args.host_apk else None
     modules = []
     for name in ['python', 'quickjs', 'thunder', 'nodejs', 'bdj']:
+        version_code, version_name = module_version(root, name)
         candidates = list((root / 'runtime' / name / 'build/outputs/apk' / args.variant).glob('*.apk'))
         if len(candidates) != 1:
             parser.error(f'Build exactly one {name} {args.variant} APK first')
@@ -51,18 +61,18 @@ def main():
             parser.error(f'{source} is unsigned. Sign it with the host release key first.')
         if args.aapt:
             badging = subprocess.check_output([args.aapt, 'dump', 'badging', str(source)], text=True)
-            if not badging.startswith(f"package: name='{package}' versionCode='2' versionName='1.0.1'"):
+            if not badging.startswith(f"package: name='{package}' versionCode='{version_code}' versionName='{version_name}'"):
                 parser.error(f'Unexpected module identity: {source}')
             if args.variant == 'release' and 'application-debuggable' in badging:
                 parser.error('Refusing to publish a debuggable runtime')
         if host_certificate and certificate(source) != host_certificate:
             parser.error(f'Module signing certificate differs from host: {source}')
-        filename = f'runtime-{name}-1.0.1-arm64-v8a.apk'
+        filename = f'runtime-{name}-{version_name}-arm64-v8a.apk'
         destination = output / filename
         shutil.copyfile(source, destination)
         modules.append(dict(id=name,
                             packageName=package,
-                            compatibilityId=f'tvbox-{name}-v1', versionCode=2, versionName='1.0.1',
+                            compatibilityId=f'tvbox-{name}-v1', versionCode=version_code, versionName=version_name,
                             artifacts=[dict(abi='arm64-v8a', minSdk=24, size=destination.stat().st_size,
                                             sha256=hashlib.sha256(destination.read_bytes()).hexdigest(),
                                             url=urljoin(args.base_url.rstrip('/') + '/', filename))]))
